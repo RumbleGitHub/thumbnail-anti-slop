@@ -635,6 +635,24 @@ export interface PhysicalInteractionPlan {
   applied: boolean;
 }
 
+export interface SpatialHierarchyPlan {
+  primarySubject: string;
+  primaryObject?: string;
+  heroSupportingItems?: string[];
+  secondaryElements?: string[];
+  subjectScale: string;
+  objectScale: string;
+  subjectObjectDistance: string;
+  cropTightness: string;
+  foregroundPriority: string;
+  overlapStrategy: string;
+  negativeSpaceNeed: string;
+  thumbnailReadabilityRisk?: string;
+  confidence: number;
+  applied: boolean;
+  compositionDirective?: string;
+}
+
 export interface ComplementaryDebugInfo {
   theme?: string;
   primaryVisualStory?: string;
@@ -652,6 +670,8 @@ export interface ComplementaryDebugInfo {
   productSource?: ProductSourceState;
   interactionPlannerUsed: boolean;
   interactionPlan?: PhysicalInteractionPlan;
+  spatialHierarchyPlannerUsed?: boolean;
+  spatialHierarchyPlan?: SpatialHierarchyPlan;
   complementaryFieldsFilled: string[];
   complementaryFieldsRejectedDueToHigherAuthority: string[];
   researchFailureReason?: string;
@@ -701,6 +721,7 @@ export interface ScenePlan {
   productSourceState?: ProductSourceState;
   themeContext?: ThemeContext;
   physicalInteractionPlan?: PhysicalInteractionPlan;
+  spatialHierarchyPlan?: SpatialHierarchyPlan;
   researchFacts?: ResearchFact[];
   complementaryDebug?: ComplementaryDebugInfo;
 }

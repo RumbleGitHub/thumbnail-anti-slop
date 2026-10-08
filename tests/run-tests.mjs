@@ -2371,4 +2371,240 @@ console.log('\n28. Testando Regressões Complementares, Autoridade e Snapshots B
   delete process.env.COMPLEMENTARY_ENGINES_ENABLED;
 }
 
+// 29. Testando Hierarquia Espacial, Proximidade, Escala e Preservação Estrita de Iluminação (Missão Spatial Hierarchy)...
+console.log('\n29. Testando Hierarquia Espacial, Proximidade, Escala e Preservação Estrita de Iluminação...');
+{
+  const { improvePrompt, buildScenePlan, buildPromptFromScenePlan } = await import('../src/lib/simpleEngine/engine.ts');
+
+  // TEST 29.1: improve existing thumbnail + no lighting request -> lighting preserved
+  const promptWithExistingLight = 'Photographic YouTube thumbnail of a tech reviewer sitting at a workbench holding a portable console. Soft natural window light from the left side with subtle room shadow falloff. High CTR, epic.';
+  const res29_1 = improvePrompt({ rawPrompt: promptWithExistingLight, targetModel: 'GERAL' });
+  assert.ok(res29_1.improvedPrompt.toLowerCase().includes('window light from the left') || res29_1.improvedPrompt.includes('Soft natural window light'), 'Iluminação existente da janela deve ser preservada verbatim');
+  assert.ok(!res29_1.improvedPrompt.toLowerCase().includes('cinematic lighting'), 'Não deve adicionar iluminação cinematográfica');
+  assert.ok(!res29_1.improvedPrompt.toLowerCase().includes('rim light'), 'Não deve adicionar rim light');
+  assert.ok(!res29_1.improvedPrompt.toLowerCase().includes('orange and teal') && !res29_1.improvedPrompt.toLowerCase().includes('orange/teal'), 'Não deve adicionar grading orange/teal');
+  assert.ok(!res29_1.improvedPrompt.toLowerCase().includes('volumetric light'), 'Não deve adicionar volumetric light');
+  console.log('  ✓ TEST 29.1: improve existing thumbnail + sem pedido de luz -> iluminação original preservada.');
+
+  // TEST 29.2: "make the products bigger and closer" -> spatial composition changes, lighting unchanged
+  const prompt29_2 = 'Reviewer at wooden desk with two handheld gaming consoles. Make the products bigger and closer.';
+  const res29_2 = improvePrompt({ rawPrompt: prompt29_2, targetModel: 'GERAL' });
+  const promptLower29_2 = res29_2.improvedPrompt.toLowerCase();
+  assert.ok(promptLower29_2.includes('proximity') || promptLower29_2.includes('closer') || promptLower29_2.includes('foreground') || promptLower29_2.includes('tighter crop') || promptLower29_2.includes('enlarged') || promptLower29_2.includes('reduced distance'), 'Composição espacial deve refletir maior escala e proximidade');
+  assert.ok(promptLower29_2.includes('120px') || promptLower29_2.includes('thumbnail scale') || promptLower29_2.includes('mobile scale'), 'Objetos legíveis em escala de thumbnail');
+  assert.ok(!promptLower29_2.includes('cinematic lighting'), 'Iluminação não deve ser alterada para cinematográfica');
+  assert.ok(!promptLower29_2.includes('dramatic rim light'), 'Sem rim light');
+  assert.ok(res29_2.changes.some(c => c.toLowerCase().includes('hierarquia espacial') || c.toLowerCase().includes('escala') || c.toLowerCase().includes('proximidade')), 'Mudanças devem documentar hierarquia espacial');
+  console.log('  ✓ TEST 29.2: "make the products bigger and closer" -> hierarquia espacial alterada, iluminação inalterada.');
+
+  // TEST 29.3: "make it more impactful" -> hierarchy/crop may improve, no automatic cinematic lighting
+  const prompt29_3 = 'Creator at desk with custom mechanical keyboard. Make it more impactful.';
+  const res29_3 = improvePrompt({ rawPrompt: prompt29_3, targetModel: 'GERAL' });
+  const promptLower29_3 = res29_3.improvedPrompt.toLowerCase();
+  assert.ok(promptLower29_3.includes('hierarchy') || promptLower29_3.includes('crop') || promptLower29_3.includes('figure-ground') || promptLower29_3.includes('scale'), 'Hierarquia/enquadramento aprimorados');
+  assert.ok(!promptLower29_3.includes('cinematic lighting'), 'Sem iluminação cinematográfica automática');
+  assert.ok(!promptLower29_3.includes('dramatic rim light'), 'Sem rim light dramático');
+  assert.ok(!promptLower29_3.includes('volumetric'), 'Sem luz volumétrica');
+  assert.ok(!promptLower29_3.includes('hdr'), 'Sem HDR forçado');
+  console.log('  ✓ TEST 29.3: "make it more impactful" -> melhoria por hierarquia/crop sem iluminação cinematográfica.');
+
+  // TEST 29.4: explicit request: "make the lighting brighter" -> lighting change is allowed
+  const prompt29_4 = 'Creator at desk holding a gadget. Make the lighting brighter.';
+  const res29_4 = improvePrompt({ rawPrompt: prompt29_4, targetModel: 'GERAL' });
+  const promptLower29_4 = res29_4.improvedPrompt.toLowerCase();
+  assert.ok(promptLower29_4.includes('bright') || promptLower29_4.includes('brighter') || promptLower29_4.includes('increased exposure') || promptLower29_4.includes('higher key'), 'Mudança de iluminação permitida quando explicitamente solicitada');
+  assert.ok(res29_4.changes.some(c => c.toLowerCase().includes('iluminação') && (c.toLowerCase().includes('solicita') || c.toLowerCase().includes('ajustad') || c.toLowerCase().includes('explícita'))), 'Mudança de iluminação documentada');
+  console.log('  ✓ TEST 29.4: pedido explícito "make the lighting brighter" -> alteração de luz permitida.');
+
+  // TEST 29.5: existing product/reference fidelity and product/cover case
+  const prompt29_5 = 'Creator holding a Nintendo Switch and vintage Zelda game box in a living room. High impact.';
+  const res29_5 = improvePrompt({ rawPrompt: prompt29_5, targetModel: 'GERAL' });
+  const promptLower29_5 = res29_5.improvedPrompt.toLowerCase();
+  assert.ok(promptLower29_5.includes('proportions') || promptLower29_5.includes('geometry') || promptLower29_5.includes('cover art') || promptLower29_5.includes('hero items') || promptLower29_5.includes('clutter'), 'Capas e produtos com fidelidade de proporção e arte sem virar poluição de fundo');
+  assert.ok(promptLower29_5.includes('without distortion') || promptLower29_5.includes('zero distortion') || promptLower29_5.includes('authentic proportions') || promptLower29_5.includes('do not distort'), 'Sem distorcer produtos');
+  assert.ok(!promptLower29_5.includes('cinematic lighting'), 'Sem luz cinematográfica artificial');
+  console.log('  ✓ TEST 29.5: Fidelidade de produto/capa e proporções físicas preservadas sem inventar capas substitutas.');
+
+  // TEST 29.6: Autoridade em edições: TARGET lighting permanece autoritária a menos que explicitamente solicitado
+  const editPlan = buildScenePlan({
+    videoTitle: 'Trocando o controle por um Pro Controller',
+    ideaDescription: 'Make it more impactful and professional.',
+    references: [
+      { id: 'ref-target', name: 'Foto Original de Estúdio', role: 'IMAGEM_ALVO', url: 'https://example.com/target.jpg' },
+      { id: 'ref-prod', name: 'Pro Controller Oficial', role: 'PRODUTO', url: 'https://example.com/prod.jpg' }
+    ]
+  });
+  assert.equal(editPlan.taskType, 'REPLACE_OBJECT', 'Task deve ser REPLACE_OBJECT');
+  assert.equal(editPlan.provenanceMap.lighting, 'TARGET_IMAGE', 'Iluminação DEVE ser estritamente da TARGET_IMAGE mesmo com "make it more impactful"');
+  const editPromptRes = buildPromptFromScenePlan(editPlan, {
+    videoTitle: 'Trocando o controle',
+    ideaDescription: 'Make it more impactful',
+    references: [
+      { id: 'ref-target', name: 'Foto Original de Estúdio', role: 'IMAGEM_ALVO', url: 'https://example.com/target.jpg' },
+      { id: 'ref-prod', name: 'Pro Controller Oficial', role: 'PRODUTO', url: 'https://example.com/prod.jpg' }
+    ],
+    targetModel: 'OPENAI_GPT_IMAGE_2_5_SUNBURST'
+  });
+  const editPromptLower = editPromptRes.finalPrompt.toLowerCase();
+  assert.ok(editPromptLower.includes('preserved from target master') || editPromptLower.includes('master photo') || editPromptLower.includes('ambient lighting direction') || editPromptLower.includes('target image'), 'Prompt da OpenAI preserva iluminação da master photo');
+  assert.ok(!editPromptLower.includes('cinematic lighting'), 'Edição não introduz iluminação cinematográfica');
+  console.log('  ✓ TEST 29.6: Edições preservam autoridade de iluminação da TARGET_IMAGE sem relighting.');
+}
+
+// 30. Testando Complementary Thumbnail Spatial Hierarchy Planner (Missão Spatial Hierarchy Planner)...
+console.log('\n30. Testando Complementary Thumbnail Spatial Hierarchy Planner...');
+{
+  const {
+    planSpatialHierarchy,
+    buildScenePlan,
+    resolveThemeContext,
+    mergeComplementaryPlan,
+    generateSimpleThumbnail
+  } = await import('../src/lib/simpleEngine/engine.ts');
+
+  process.env.COMPLEMENTARY_ENGINES_ENABLED = 'true';
+
+  // TEST 30.1: creator + PS2 + many covers -> PS2 and selected hero covers receive higher spatial priority
+  const ps2Input = {
+    videoTitle: 'Colecionando PS2 em 2026',
+    ideaDescription: 'Eu numa loja de games retrô segurando um PlayStation 2 no balcão com dezenas de jogos de PS2 ao redor.',
+    references: [],
+    targetModel: 'GERAL'
+  };
+  const ps2BasePlan = buildScenePlan(ps2Input);
+  const ps2Theme = resolveThemeContext(ps2Input, ps2BasePlan);
+  const ps2Spatial = planSpatialHierarchy(ps2Input, ps2BasePlan, ps2Theme);
+
+  assert.equal(ps2Spatial.applied, true, 'Planner deve ser aplicado para cena com múltiplos itens');
+  assert.ok(ps2Spatial.primarySubject.toLowerCase().includes('creator') || ps2Spatial.primarySubject.toLowerCase().includes('eu'), 'Primary subject identifica criador');
+  assert.ok(ps2Spatial.primaryObject?.toLowerCase().includes('playstation 2') || ps2Spatial.primaryObject?.toLowerCase().includes('ps2'), 'Primary object identifica PlayStation 2');
+  assert.ok(ps2Spatial.heroSupportingItems && ps2Spatial.heroSupportingItems.length > 0, 'Deve identificar 2-4 hero game covers');
+  assert.ok(ps2Spatial.heroSupportingItems.some(item => item.includes('2-4') || item.includes('hero') || item.includes('covers')), 'Hero covers priorizadas');
+  assert.ok(ps2Spatial.secondaryElements && ps2Spatial.secondaryElements.some(item => item.toLowerCase().includes('subordinat') || item.toLowerCase().includes('background')), 'Itens secundários subordinados');
+
+  const ps2Merged = mergeComplementaryPlan(ps2BasePlan, ps2Input, ps2Theme, null, undefined, ps2Spatial);
+  assert.equal(ps2Merged.spatialHierarchyPlan?.applied, true, 'Spatial plan anexado ao ScenePlan');
+  const ps2Res = generateSimpleThumbnail(ps2Input);
+  const ps2PromptLower = ps2Res.finalPrompt.toLowerCase();
+  assert.ok(ps2PromptLower.includes('playstation 2') || ps2PromptLower.includes('ps2'), 'Prompt final inclui PlayStation 2');
+  assert.ok(ps2PromptLower.includes('hero') || ps2PromptLower.includes('covers') || ps2PromptLower.includes('foreground') || ps2PromptLower.includes('proximity'), 'Prompt reflete prioridade espacial');
+  assert.ok(!ps2PromptLower.includes('cinematic lighting'), 'Sem relighting cinematográfico');
+  console.log('  ✓ TEST 30.1: Creator + PS2 + many covers -> PS2 e hero covers com prioridade espacial máxima.');
+
+  // TEST 30.2: important product too distant from creator -> reduced distance / stronger interaction
+  const distantInput = {
+    videoTitle: 'Review Smartphone',
+    ideaDescription: 'Creator standing on the left side of the room, new smartphone placed too distant on a far table in the background.',
+    references: [],
+    targetModel: 'GERAL'
+  };
+  const distBasePlan = buildScenePlan(distantInput);
+  const distTheme = resolveThemeContext(distantInput, distBasePlan);
+  const distSpatial = planSpatialHierarchy(distantInput, distBasePlan, distTheme);
+
+  assert.equal(distSpatial.applied, true, 'Planner deve ser aplicado para corrigir distância excessiva');
+  assert.ok(distSpatial.subjectObjectDistance.includes('IMMEDIATE_PROXIMITY') || distSpatial.subjectObjectDistance.includes('CLOSE') || distSpatial.subjectObjectDistance.toLowerCase().includes('reduc'), 'Distância entre criador e produto reduzida');
+  assert.ok(distSpatial.cropTightness.includes('MEDIUM_CLOSE') || distSpatial.cropTightness.includes('TIGHT'), 'Enquadramento mais fechado para legibilidade');
+  console.log('  ✓ TEST 30.2: Produto distante -> distância reduzida e proximidade em primeiro plano reforçada.');
+
+  // TEST 30.3: many secondary products -> supporting items stay subordinate
+  const clutterInput = {
+    videoTitle: 'Mouse Shootout',
+    ideaDescription: 'Desk with 10 different secondary gaming mice, cables, keyboards and headsets. Spotlighting the main wireless gaming mouse.',
+    references: [],
+    targetModel: 'GERAL'
+  };
+  const clutterBasePlan = buildScenePlan(clutterInput);
+  const clutterTheme = resolveThemeContext(clutterInput, clutterBasePlan);
+  const clutterSpatial = planSpatialHierarchy(clutterInput, clutterBasePlan, clutterTheme);
+
+  assert.equal(clutterSpatial.applied, true, 'Planner aplicado para organizar poluição de produtos');
+  assert.ok(clutterSpatial.primaryObject?.toLowerCase().includes('mouse'), 'Primary object é o mouse principal');
+  assert.ok(clutterSpatial.secondaryElements && clutterSpatial.secondaryElements.some(el => el.toLowerCase().includes('subordinat') || el.toLowerCase().includes('background')), 'Itens secundários mantidos subordinados');
+  console.log('  ✓ TEST 30.3: Múltiplos produtos secundários -> elementos de apoio mantidos estritamente subordinados.');
+
+  // TEST 30.4: explicit composition -> planner NO-OP
+  const explicitCompInput = {
+    videoTitle: 'Voo Panorâmico',
+    ideaDescription: 'Extreme wide shot, vista aérea da cidade com o criador minúsculo no canto inferior esquerdo.',
+    references: [],
+    targetModel: 'GERAL'
+  };
+  const expBasePlan = buildScenePlan(explicitCompInput);
+  const expTheme = resolveThemeContext(explicitCompInput, expBasePlan);
+  const expSpatial = planSpatialHierarchy(explicitCompInput, expBasePlan, expTheme);
+
+  assert.equal(expSpatial.applied, false, 'Composição explicitamente bloqueada pelo usuário deve resultar em NO-OP');
+  console.log('  ✓ TEST 30.4: Composição explícita do usuário -> Planner NO-OP preservando enquadramento solicitado.');
+
+  // TEST 30.5: TARGET composition -> preserved
+  const targetEditInput = {
+    videoTitle: 'Troca de Rosto em Guerreiro',
+    ideaDescription: 'Adapte meu rosto no guerreiro da foto.',
+    references: [
+      { id: 'ref-target', name: 'Foto Original de Estúdio', role: 'IMAGEM_ALVO', url: 'https://example.com/target.jpg' },
+      { id: 'ref-face', name: 'Meu Rosto', role: 'PESSOA', url: 'https://example.com/face.jpg' }
+    ],
+    targetModel: 'GERAL'
+  };
+  const targetBasePlan = buildScenePlan(targetEditInput);
+  const targetSpatial = planSpatialHierarchy(targetEditInput, targetBasePlan);
+
+  assert.equal(targetSpatial.applied, false, 'Composição da Imagem-Alvo mestre deve ser preservada como autoritária');
+  console.log('  ✓ TEST 30.5: TARGET composition -> Autoridade da Imagem-Alvo estritamente preservada.');
+
+  // TEST 30.6: "make it more impactful" -> scale/crop/proximity improve, lighting unchanged
+  const impactInput = {
+    videoTitle: 'Teclado Mecânico Custom',
+    ideaDescription: 'Creator at desk with custom mechanical keyboard. Make it more impactful.',
+    references: [],
+    targetModel: 'GERAL'
+  };
+  const impactBasePlan = buildScenePlan(impactInput);
+  const impactTheme = resolveThemeContext(impactInput, impactBasePlan);
+  const impactSpatial = planSpatialHierarchy(impactInput, impactBasePlan, impactTheme);
+
+  assert.equal(impactSpatial.applied, true, '"make it more impactful" ativa melhoria de hierarquia espacial');
+  assert.ok(impactSpatial.cropTightness.includes('MEDIUM_CLOSE') || impactSpatial.cropTightness.includes('TIGHT'), 'Corte mais fechado para impacto');
+  const impactRes = generateSimpleThumbnail(impactInput);
+  const impactPromptPositive = impactRes.finalPrompt.split(/NEGATIVE|STRICTLY AVOID/i)[0].toLowerCase();
+  assert.ok(!impactPromptPositive.includes('cinematic lighting'), 'Impacto visual NÃO relighta para iluminação cinematográfica');
+  assert.ok(!impactPromptPositive.includes('dramatic rim light'), 'Sem rim light dramático');
+  assert.ok(!impactPromptPositive.includes('volumetric'), 'Sem luz volumétrica');
+  assert.ok(!impactPromptPositive.includes('hdr'), 'Sem HDR forçado');
+  console.log('  ✓ TEST 30.6: "make it more impactful" -> Escala, crop e proximidade aprimorados com iluminação inalterada.');
+
+  // TEST 30.7: explicit lighting request -> existing lighting system may handle it, hierarchy planner does not own lighting
+  const lightingInput = {
+    videoTitle: 'Review Gadget',
+    ideaDescription: 'Creator holding a gadget. Make the lighting brighter.',
+    references: [],
+    targetModel: 'GERAL'
+  };
+  const lightBasePlan = buildScenePlan(lightingInput);
+  const lightSpatial = planSpatialHierarchy(lightingInput, lightBasePlan);
+  assert.equal(lightSpatial.lighting, undefined, 'SpatialHierarchyPlan NÃO possui campo de iluminação');
+  assert.equal(lightSpatial.lightingOwner, undefined, 'SpatialHierarchyPlan NÃO assume autoridade de luz');
+  console.log('  ✓ TEST 30.7: Pedido explícito de luz -> Hierarchy planner possui ZERO autoridade sobre iluminação.');
+
+  // TEST 30.8: reference product/covers -> identity unchanged, only scale/placement may change
+  const refProdInput = {
+    videoTitle: 'Novo Nintendo Switch',
+    ideaDescription: 'Creator holding new console with game box. Make the products bigger and closer.',
+    references: [
+      { id: 'ref-switch', name: 'Nintendo Switch OLED Edição Zelda', role: 'PRODUTO', url: 'https://example.com/switch.jpg' }
+    ],
+    targetModel: 'GERAL'
+  };
+  const refProdBasePlan = buildScenePlan(refProdInput);
+  const refProdTheme = resolveThemeContext(refProdInput, refProdBasePlan);
+  const refProdSpatial = planSpatialHierarchy(refProdInput, refProdBasePlan, refProdTheme);
+
+  assert.equal(refProdSpatial.applied, true, 'Planner melhora escala e proximidade do produto de referência');
+  assert.equal(refProdBasePlan.productSource?.name, 'Nintendo Switch OLED Edição Zelda', 'Identidade da referência permanece 100% inalterada');
+  assert.ok(refProdSpatial.objectScale.includes('HERO') || refProdSpatial.objectScale.includes('LARGE') || refProdSpatial.objectScale.includes('120PX'), 'Escala do produto hero ampliada');
+  console.log('  ✓ TEST 30.8: Referência de produto -> Identidade intacta, apenas escala e posicionamento otimizados.');
+
+  delete process.env.COMPLEMENTARY_ENGINES_ENABLED;
+}
 console.log('\n✅ TODOS OS TESTES PASSARAM COM SUCESSO! VALIDAÇÃO CONCLUÍDA.');

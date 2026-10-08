@@ -8,6 +8,7 @@ import {
   resolveThemeContext,
   ResearchBroker,
   planPhysicalInteraction,
+  planSpatialHierarchy,
   mergeComplementaryPlan,
   type ResearchResult
 } from '@/lib/simpleEngine/engine';
@@ -83,7 +84,8 @@ export async function POST(req: NextRequest) {
         }
       }
       const interactionPlan = planPhysicalInteraction(body, reconciledPlan, themeCtx, researchResults.flatMap(r => r.facts));
-      fullyEnrichedPlan = mergeComplementaryPlan(reconciledPlan, body, themeCtx, researchResults, interactionPlan);
+      const spatialPlan = planSpatialHierarchy(body, reconciledPlan, themeCtx, interactionPlan);
+      fullyEnrichedPlan = mergeComplementaryPlan(reconciledPlan, body, themeCtx, researchResults, interactionPlan, spatialPlan);
     }
 
     // 4. PROMPT BUILDER

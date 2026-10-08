@@ -38,6 +38,7 @@ export type { TargetModel, TargetModelConfig, TargetModelOption, TargetModelGrou
 import { resolveThemeContext, filterIrrelevantVisualClutter, isEligibleNamedEntity } from './themeResolver.ts';
 import { ResearchBroker } from './researchBroker.ts';
 import { planPhysicalInteraction } from './interactionPlanner.ts';
+import { planSpatialHierarchy, isCompositionAuthoritativelyOwned } from './spatialHierarchyPlanner.ts';
 import { mergeComplementaryPlan } from './complementaryMerge.ts';
 
 export {
@@ -46,6 +47,8 @@ export {
   isEligibleNamedEntity,
   ResearchBroker,
   planPhysicalInteraction,
+  planSpatialHierarchy,
+  isCompositionAuthoritativelyOwned,
   mergeComplementaryPlan
 };
 export type { ResearchResult, ResearchFact, AllowedResearchCategory };
@@ -364,12 +367,12 @@ export function classifyTask(
 
   // 2. REPLACE OBJECT: Replacing an object/device in an existing photo/master with another object
   const replaceObjectPatterns = [
-    /(troqu?e|substitu[ia]|mude|replace|swap)\s*(o|a|o\s*meu|o\s*produto|o\s*console|o\s*aparelho|o\s*objeto)\s*(pel[oa]|por|com|for|with)/i,
-    /(trocar|troque)\s*.*(pela\s*segunda|pelo\s*segundo|da\s*segunda\s*foto|da\s*outra\s*imagem|pelo\s*console|pelo\s*produto)/i,
-    /(substitua|substituir)\s*o\s*aparelho/i,
-    /(troque|substitua|replace)\s*o\s*(console|aparelho|hardware|produto|dispositivo)/i
+    /(troqu?e|trocar|trocando|substitu[ia]|substituindo|mude|mudando|replace|replacing|swap|swapping)\s*(o|a|o\s*meu|o\s*produto|o\s*console|o\s*aparelho|o\s*objeto|o\s*controle|o\s*item)\s*(pel[oa]|por|com|for|with)/i,
+    /(trocar|troque|trocando)\s*.*(pela\s*segunda|pelo\s*segundo|da\s*segunda\s*foto|da\s*outra\s*imagem|pelo\s*console|pelo\s*produto|pelo\s*controle)/i,
+    /(substitua|substituir|substituindo)\s*o\s*(aparelho|console|controle|objeto|produto)/i,
+    /(troque|trocando|substitua|substituindo|replace|replacing)\s*o\s*(console|aparelho|hardware|produto|dispositivo|controle)/i
   ];
-  if (replaceObjectPatterns.some(p => p.test(combined)) || (hasProductRef && hasTargetRef && /(trocar|troque|replace|substitua)/i.test(combined))) {
+  if (replaceObjectPatterns.some(p => p.test(combined)) || (hasProductRef && hasTargetRef && /(trocar|troque|trocando|substituir|substitua|substituindo|replace|replacing|swap)/i.test(combined))) {
     return {
       taskType: 'REPLACE_OBJECT',
       confidence: 0.9,
@@ -828,6 +831,64 @@ export function auditPromptProvenance(
 }
 
 /**
+ * Detects explicit user requests to change or adjust lighting in prompts.
+ * Crucial rule: "make it more impactful", "make it better", "bigger and closer" MUST NOT trigger relighting.
+ */
+export function detectExplicitLightingRequest(text: string): { requested: boolean; direction?: string } {
+  if (/(?:make\s+(?:the\s+)?(?:lighting|light)\s+brighter|brighter\s+(?:lighting|light)|increase\s+exposure|higher\s+key|ilumina[çc][ãa]o\s+mais\s+clara)/i.test(text)) {
+    return { requested: true, direction: 'BRIGHTER' };
+  }
+  if (/(?:make\s+(?:the\s+)?(?:lighting|light)\s+darker|darker\s+(?:lighting|light)|lower\s+key|ilumina[çc][ãa]o\s+mais\s+escura)/i.test(text)) {
+    return { requested: true, direction: 'DARKER' };
+  }
+  if (/(?:change|switch|turn)\s+(?:the\s+)?(?:lighting|light)\s+to\s+night|(?:ilumina[çc][ãa]o|luz)\s+noturna/i.test(text)) {
+    return { requested: true, direction: 'NIGHT' };
+  }
+  if (/(?:fix|balance)\s+(?:the\s+)?shadows?|ajustar\s+sombras/i.test(text)) {
+    return { requested: true, direction: 'FIX_SHADOWS' };
+  }
+  if (/(?:make\s+(?:the\s+)?(?:lighting|light)\s+(?:softer|warmer|cooler)|(?:change|adjust)\s+(?:the\s+)?(?:lighting|light)\b)/i.test(text)) {
+    return { requested: true, direction: 'CUSTOM' };
+  }
+  return { requested: false };
+}
+
+/**
+ * Extracts existing scene lighting from prompt text to preserve it verbatim.
+ * Filters out artificial slop lighting (neon, rim light, glow).
+ */
+export function extractExistingLighting(text: string): string | null {
+  // Check for explicit LIGHTING section
+  const sectionMatch = text.match(/LIGHTING:\s*([^.\n]+(?:\.[^.\n]+)*)/i);
+  if (sectionMatch && sectionMatch[1]) {
+    const val = sectionMatch[1].trim();
+    if (!/(?:neon|rim\s*light|laser|outer\s*glow|cinematic|dramatic\s*lighting)/i.test(val)) {
+      return val;
+    }
+  }
+
+  // Check sentences in text
+  const sentences = text.split(/(?<=[.!?])\s+|\n+/);
+  for (const sentence of sentences) {
+    const s = sentence.trim().replace(/[.!?]+$/, '');
+    if (!s) continue;
+    // Ignore if it's artificial slop lighting
+    if (/(?:neon|rim\s*light|laser|outer\s*glow|sparks|particles)/i.test(s)) {
+      continue;
+    }
+    // Match authentic physical lighting descriptions
+    if (
+      /(?:(?:soft|warm|diffuse|subtle|directional|clean|natural|overhead|tungsten|daylight|sunlight|ambient)\s+(?:natural\s+)?(?:window\s+light|room\s+light|lighting|illumination|light|shadow\s+falloff))/i.test(s) ||
+      /(?:window\s+light|natural\s+light|shadow\s+falloff|directional\s+light|ambient\s+light)\s+(?:from|with|side)/i.test(s)
+    ) {
+      return s;
+    }
+  }
+
+  return null;
+}
+
+/**
  * 5. SCENE PLAN BUILDER: Assembles the ScenePlan data structure.
  */
 export function buildScenePlan(
@@ -888,9 +949,17 @@ export function buildScenePlan(
       provenanceMap['environment'] = 'SCENARIO_REFERENCE';
       provenanceMap['lighting'] = 'SCENARIO_REFERENCE';
     } else if (resolved.targetImage) {
-      preserve.push(`Target environment and background setting exactly as in master image (${targetName}).`);
-      provenanceMap['environment'] = 'TARGET_IMAGE';
-      provenanceMap['lighting'] = 'TARGET_IMAGE';
+      const explicitLighting = detectExplicitLightingRequest(userText);
+      if (explicitLighting.requested) {
+        change.push(`Adjust lighting as explicitly requested: ${explicitLighting.direction === 'BRIGHTER' ? 'brighter illumination and increased exposure' : explicitLighting.direction === 'DARKER' ? 'darker moody lighting' : explicitLighting.direction === 'NIGHT' ? 'night illumination' : 'adjusted lighting and shadow balance'}.`);
+        provenanceMap['lighting'] = 'USER_EXPLICIT';
+        preserve.push(`Target environment and background setting exactly as in master image (${targetName}).`);
+        provenanceMap['environment'] = 'TARGET_IMAGE';
+      } else {
+        preserve.push(`Target environment and background setting exactly as in master image (${targetName}).`);
+        provenanceMap['environment'] = 'TARGET_IMAGE';
+        provenanceMap['lighting'] = 'TARGET_IMAGE';
+      }
     } else {
       provenanceMap['environment'] = 'UNSUPPORTED_DEFAULT';
     }
@@ -907,9 +976,17 @@ export function buildScenePlan(
     preserve.push(`Preserve person facial identity, expression, gaze, body pose, and clothing from (${targetName}).`);
     provenanceMap['person'] = 'TARGET_IMAGE';
 
-    preserve.push(`Preserve background setting, camera angle, framing, and scene lighting from (${targetName}).`);
-    provenanceMap['environment'] = 'TARGET_IMAGE';
-    provenanceMap['lighting'] = 'TARGET_IMAGE';
+    const explicitLighting = detectExplicitLightingRequest(userText);
+    if (explicitLighting.requested) {
+      change.push(`Adjust lighting as explicitly requested: ${explicitLighting.direction === 'BRIGHTER' ? 'brighter illumination and increased exposure' : explicitLighting.direction === 'DARKER' ? 'darker moody lighting' : explicitLighting.direction === 'NIGHT' ? 'night illumination' : 'adjusted lighting and shadow balance'}.`);
+      provenanceMap['lighting'] = 'USER_EXPLICIT';
+      preserve.push(`Preserve background setting, camera angle, and framing from (${targetName}).`);
+      provenanceMap['environment'] = 'TARGET_IMAGE';
+    } else {
+      preserve.push(`Preserve background setting, camera angle, framing, and scene lighting from (${targetName}).`);
+      provenanceMap['environment'] = 'TARGET_IMAGE';
+      provenanceMap['lighting'] = 'TARGET_IMAGE';
+    }
   } else if (taskType === 'CHANGE_ENVIRONMENT') {
     const targetName = resolved.targetImage?.name || 'sujeito base';
     const envName = resolved.environmentSource?.name || 'novo cenário';
@@ -2103,7 +2180,7 @@ export function generateSimpleThumbnail(
   // 0. Hidden Pipeline: Intent Router, Target/Source Resolution & ScenePlan
   const scenePlan = buildScenePlan(input, approachIndex);
 
-  // 0.5 Complementary Pass (Theme Context, Research Facts, Physical Interaction)
+  // 0.5 Complementary Pass (Theme Context, Research Facts, Physical Interaction, Spatial Hierarchy)
   // Strictly conditional on master kill switch COMPLEMENTARY_ENGINES_ENABLED=true
   const complementaryEnabled = isComplementaryEnginesEnabled();
   const themeCtx = complementaryEnabled ? resolveThemeContext(input, scenePlan) : undefined;
@@ -2111,8 +2188,9 @@ export function generateSimpleThumbnail(
     ? (Array.isArray(options.researchResults) ? options.researchResults.flatMap(r => r.facts) : options.researchResults.facts)
     : undefined;
   const interactionPlan = complementaryEnabled ? planPhysicalInteraction(input, scenePlan, themeCtx, rawFacts) : undefined;
+  const spatialPlan = complementaryEnabled ? planSpatialHierarchy(input, scenePlan, themeCtx, interactionPlan) : undefined;
   const enrichedPlan = complementaryEnabled
-    ? mergeComplementaryPlan(scenePlan, input, themeCtx, options?.researchResults, interactionPlan)
+    ? mergeComplementaryPlan(scenePlan, input, themeCtx, options?.researchResults, interactionPlan, spatialPlan)
     : scenePlan;
 
   // If this is an edit / reconstruction task (IDENTITY_TRANSFER, REPLACE_OBJECT, CHANGE_ENVIRONMENT)
@@ -2243,9 +2321,13 @@ export function generateSimpleThumbnail(
   const arParam = aspectRatio === '9:16' ? '9:16 vertical format' : '16:9 widescreen format';
   const styleTreatment = stylePreset !== 'Natural' ? `${stylePreset} visual treatment, ` : '';
 
+  const spatialDirective = (enrichedPlan.spatialHierarchyPlan?.applied && enrichedPlan.spatialHierarchyPlan.compositionDirective)
+    ? ` ${enrichedPlan.spatialHierarchyPlan.compositionDirective}`
+    : '';
+
   let promptBody = `Photographic YouTube thumbnail, ${arParam}. Directed visual storytelling, authentic and grounded.
 SCENE: ${cleanIdea}.
-SUBJECT & FRAMING: ${subjectEn}. ${compositionEn}.`;
+SUBJECT & FRAMING: ${subjectEn}. ${compositionEn}.${spatialDirective}`;
 
   if (hasPerson) {
     promptBody += `\nHUMAN EXPRESSION: ${expressionEn}.`;
@@ -2455,9 +2537,9 @@ export function improvePrompt(input: ImprovePromptInput): ImprovePromptResult {
   const normModel = normalizeTargetModel(input.targetModel);
   const cfg = TARGET_MODEL_CONFIGS[normModel];
 
-  const isGaming = /(game|gaming|console|playstation|xbox|nintendo|steam\s*deck|legion|controller|joystick)/i.test(raw);
+  const isGaming = /(game|gaming|console|playstation|xbox|nintendo|steam\s*deck|legion|controller|joystick|switch|zelda)/i.test(raw);
   const isTech = detectTechHardware(raw);
-  const hasFace = /(face|person|man|woman|youtuber|creator|shocked|screaming|mouth)/i.test(raw);
+  const hasFace = /(face|person|man|woman|youtuber|creator|shocked|screaming|mouth|reviewer)/i.test(raw);
 
   let cleaned = raw;
 
@@ -2506,6 +2588,50 @@ export function improvePrompt(input: ImprovePromptInput): ImprovePromptResult {
     cleaned = cleaned.replace(/(epic|cinematic\s*masterpiece|ultra\s*detailed|high\s*ctr|hyperrealistic|8k)/gi, '');
   }
 
+  // 9. Spatial hierarchy & scale detection
+  const hasSpatialRequest = /(?:make\s+(?:the\s+)?(?:products?|objects?|items?|subject|consoles?)\s+(?:bigger\s+and\s+closer|closer\s+and\s+bigger|bigger|closer|larger|more\s+prominent)|bigger\s+and\s+closer|closer\s+and\s+bigger|tighter\s+crop|zoom\s+in|scale\s+up|aumentar|aproximar|mais\s+perto|mais\s+pr[oó]ximo)/i.test(raw);
+
+  const hasImpactRequest = /(?:make\s+it\s+(?:more\s+)?(?:impactful|professional|better)|high\s*impact|more\s+impactful|mais\s+impactante)/i.test(raw);
+
+  const isProductCover = /(?:game\s*box|box\s*art|game\s*cover|cartridge|m[íi]dia\s*f[íi]sica|physical\s*media|game\s*case|cover\s*art|zelda)/i.test(raw);
+
+  if (hasSpatialRequest) {
+    cleaned = cleaned.replace(/(?:make\s+(?:the\s+)?(?:products?|objects?|items?|subject|consoles?)\s+(?:bigger\s+and\s+closer|closer\s+and\s+bigger|bigger|closer|larger|more\s+prominent)|bigger\s+and\s+closer|closer\s+and\s+bigger|tighter\s+crop|zoom\s+in|scale\s+up)[.!]?/gi, '');
+    changes.push('Hierarquia espacial e escala aprimoradas: produtos e sujeito principal ampliados e aproximados em primeiro plano com enquadramento mais fechado (tighter crop) sem alterar a iluminação.');
+  }
+
+  if (hasImpactRequest) {
+    cleaned = cleaned.replace(/(?:make\s+it\s+(?:more\s+)?(?:impactful|professional|better)|high\s*impact|more\s+impactful)[.!]?/gi, '');
+    changes.push('Identificada a intenção de maior impacto: aprimoramento por hierarquia espacial, corte mais fechado (crop) e separação figura-fundo sem recorrer a relighting cinematográfico artificial.');
+  }
+
+  if (isProductCover) {
+    changes.push('Fidelidade de produto e capas físicas: priorizados 1-2 itens hero com proporções autênticas sem distorção e sem inventar arte de capa substituta.');
+  }
+
+  // 10. Lighting extraction and explicit request handling
+  const explicitLighting = detectExplicitLightingRequest(raw);
+  const existingLighting = extractExistingLighting(cleaned);
+
+  let lightingText = '';
+  if (explicitLighting.requested) {
+    cleaned = cleaned.replace(/(?:make\s+(?:the\s+)?(?:lighting|light)\s+(?:brighter|darker|softer|warmer|cooler)|brighter\s+(?:lighting|light)|increase\s+exposure|higher\s+key|ilumina[çc][ãa]o\s+mais\s+(?:clara|escura))[.!]?/gi, '');
+    changes.push('Iluminação ajustada conforme solicitação explícita do usuário: maior brilho e exposição balanceada mantendo coerência física.');
+    if (explicitLighting.direction === 'BRIGHTER') {
+      lightingText = 'Higher key, brighter motivated physical illumination with increased exposure and clear directional fill.';
+    } else if (explicitLighting.direction === 'DARKER') {
+      lightingText = 'Lower key, darker motivated physical illumination with rich atmospheric shadows and subtle directional key.';
+    } else {
+      lightingText = 'Motivated physical illumination adjusted per user request, preserving environmental coherence.';
+    }
+  } else if (existingLighting) {
+    cleaned = cleaned.replace(existingLighting, '');
+    changes.push('Preservada a iluminação original existente sem introduzir relighting artificial ou luz cinematográfica.');
+    lightingText = `${existingLighting}. Existing scene lighting preserved verbatim without artificial relighting.`;
+  } else {
+    lightingText = 'Motivated physical illumination with clean directional key light and soft natural shadow falloff.';
+  }
+
   if (changes.length === 0) {
     changes.push('Ajustada a hierarquia visual para dar primazia a um único ponto focal inequívoco.');
     changes.push('Reforçada a separação óptica natural de planos e foco no elemento principal.');
@@ -2513,10 +2639,11 @@ export function improvePrompt(input: ImprovePromptInput): ImprovePromptResult {
   }
 
   // Build reconstructed, grounded prompt based on understood intent
-  const cleanSubject = cleaned.replace(/\s+/g, ' ').trim();
-  const subjectDescription = isGaming && hasFace
+  const cleanSubject = cleaned.replace(/^[,\s.-]+|[,\s.-]+$/g, '').replace(/\s+/g, ' ').trim();
+  const isGenericGaming = /^(?:gaming\s*thumbnail|thumbnail|gaming)?$/i.test(cleanSubject);
+  const subjectDescription = (isGenericGaming && isGaming && hasFace)
     ? 'A creator naturally focused on a modern gaming console held with both hands'
-    : cleanSubject || 'A compelling hero subject with authentic real-world presence and clean silhouette';
+    : cleanSubject || (isGaming && hasFace ? 'A creator naturally focused on a modern gaming console held with both hands' : 'A compelling hero subject with authentic real-world presence and clean silhouette');
 
   const handsHardwareDirective = isGaming || isTech
     ? '\nHARDWARE & HANDS: Anatomically plausible hands with natural grip around the object, correct visible finger count according to pose and natural occlusion, no duplicated or fused fingers, no fingers intersecting the product, physically believable hand-to-object contact, authentic buttons and sticks, factory matte chassis with zero AI melting or rubbery deformation.'
@@ -2526,9 +2653,20 @@ export function improvePrompt(input: ImprovePromptInput): ImprovePromptResult {
     ? '\nHUMAN EXPRESSION: Natural composed curiosity with closed mouth and expressive eyes, authentic facial asymmetry, natural skin texture avoiding plastic waxy smoothing.'
     : '';
 
+  let spatialHierarchyDirective = '';
+  if (hasSpatialRequest) {
+    spatialHierarchyDirective = '\nSPATIAL HIERARCHY & PROXIMITY: Primary subject and hero products positioned in immediate foreground proximity with enlarged scale and tighter crop, reducing unnecessary distance between subject and product for bold readability at 120px mobile thumbnail scale.';
+  } else if (hasImpactRequest) {
+    spatialHierarchyDirective = '\nSPATIAL HIERARCHY & CROP: Strengthened visual hierarchy with tighter crop and bold figure-ground scale separation, eliminating dead space and small competing elements for maximum thumbnail impact without artificial lighting at 120px mobile thumbnail scale.';
+  }
+
+  const productCoverDirective = isProductCover
+    ? '\nPRODUCT & COVER FIDELITY: Prioritize 1-2 hero items over background clutter, framing physical game boxes, consoles, or media large enough to recognize clearly at thumbnail scale. Preserve authentic proportions, original aspect ratio, physical geometry, and authentic materials without distortion; maintain original cover art identity from references without inventing replacement artwork or turning important covers into tiny background clutter.'
+    : '';
+
   const baseNeutralPrompt = `High-impact photographic YouTube thumbnail, 16:9 widescreen format.
-SUBJECT & FRAMING: ${subjectDescription}. Clean figure-ground separation with bold silhouette for instant readability at 120px mobile size.${handsHardwareDirective}${expressionDirective}
-LIGHTING: Motivated physical illumination with clean directional key light and soft natural shadow falloff.
+SUBJECT & FRAMING: ${subjectDescription}. Clean figure-ground separation with bold silhouette for instant readability at 120px mobile size.${handsHardwareDirective}${expressionDirective}${spatialHierarchyDirective}${productCoverDirective}
+LIGHTING: ${lightingText}
 OPTICAL DEPTH: Balanced photographic perspective with 35mm lens, preserving authentic spatial depth and subject clarity without forced blur.
 TEXTURES: Authentic tactile materials, true matte finishes, natural skin texture, physical fabric and surfaces.
 STRICTLY AVOID: ${CORE_ANTI_SLOP_AVOID.slice(0, 18).join(', ')}.`;
@@ -2536,6 +2674,16 @@ STRICTLY AVOID: ${CORE_ANTI_SLOP_AVOID.slice(0, 18).join(', ')}.`;
   let finalPrompt = baseNeutralPrompt;
 
   if (normModel !== 'GERAL' && cfg && cfg.promptStyle !== 'neutral') {
+    const extraNotes: string[] = [];
+    if (isGaming || isTech) {
+      extraNotes.push('Focus on authentic hardware geometry and natural hand grip.');
+    }
+    if (hasSpatialRequest) {
+      extraNotes.push('Position primary subject and hero items in immediate foreground proximity with enlarged scale and tighter crop.');
+    }
+    if (isProductCover) {
+      extraNotes.push('Prioritize 1-2 hero items, preserve authentic product and cover proportions without distortion, and avoid turning covers into background clutter.');
+    }
     const createInput: CreateThumbnailInput = {
       videoTitle: cleanSubject || subjectDescription,
       ideaDescription: subjectDescription,
@@ -2546,7 +2694,7 @@ STRICTLY AVOID: ${CORE_ANTI_SLOP_AVOID.slice(0, 18).join(', ')}.`;
       realismLevel: 'Alto',
       preserveFace: hasFace,
       preserveProduct: isGaming || isTech,
-      extraInstructions: isGaming || isTech ? 'Focus on authentic hardware geometry and natural hand grip.' : undefined
+      extraInstructions: extraNotes.length > 0 ? extraNotes.join(' ') : undefined
     };
     const scenePlan = buildScenePlan(createInput);
     const typographyDirective = 'Reserve clean, uncluttered negative space for post-production typography. Do not bake distorted AI typography directly into the pixels.';

@@ -5,14 +5,15 @@ import type {
   ResearchFact,
   ResearchResult,
   ScenePlan,
+  SpatialHierarchyPlan,
   ThemeContext
 } from '../../types/simple.ts';
 import { isEnvironmentAuthoritativelyOwned } from './themeResolver.ts';
 import { hasExplicitUserPose } from './interactionPlanner.ts';
 
 /**
- * Non-destructive merge of ThemeContext, ResearchFacts, and PhysicalInteractionPlan
- * into the base ScenePlan.
+ * Non-destructive merge of ThemeContext, ResearchFacts, PhysicalInteractionPlan,
+ * and SpatialHierarchyPlan into the base ScenePlan.
  *
  * Strict Rule: Fills ONLY holes. Never overwrites or reinterprets any field that
  * already has authoritative ownership (USER_EXPLICIT, TARGET_IMAGE, ASSIGNED_REFERENCE).
@@ -22,7 +23,8 @@ export function mergeComplementaryPlan(
   input: CreateThumbnailInput,
   themeCtx?: ThemeContext,
   researchResults?: ResearchResult | ResearchResult[] | null,
-  interactionPlan?: PhysicalInteractionPlan
+  interactionPlan?: PhysicalInteractionPlan,
+  spatialPlan?: SpatialHierarchyPlan
 ): ScenePlan {
   const { videoTitle = '', ideaDescription = '', references = [] } = input;
   const userText = `${videoTitle} ${ideaDescription}`.trim();
@@ -129,7 +131,25 @@ export function mergeComplementaryPlan(
     }
   }
 
-  // 4. ATTACH THEME CONTEXT AND PRIMARY STORY
+  // 4. SPATIAL HIERARCHY MERGE
+  if (spatialPlan) {
+    if (basePlan.compositionOwner === 'COMPOSITION_REF') {
+      rejectedFields.push('spatial_hierarchy_rejected_due_to_composition_ref_authority');
+    } else if (basePlan.targetImage || basePlan.compositionOwner === 'TARGET') {
+      const explicitImprovement = /(?:make\s+(?:the\s+)?(?:products?|objects?|items?|subject|consoles?)\s+(?:bigger|closer|larger|more\s+prominent)|bigger\s+and\s+closer|closer\s+and\s+bigger|tighter\s+crop|melhore\s+(?:a\s+)?composi[çc][ãa]o|improve\s+composition|more\s+impactful|mais\s+impactante)/i.test(userText);
+      if (!explicitImprovement) {
+        rejectedFields.push('spatial_hierarchy_rejected_due_to_target_authority');
+      } else if (spatialPlan.applied) {
+        mergedPlan.spatialHierarchyPlan = spatialPlan;
+        filledFields.push('spatial_hierarchy_plan');
+      }
+    } else if (spatialPlan.applied) {
+      mergedPlan.spatialHierarchyPlan = spatialPlan;
+      filledFields.push('spatial_hierarchy_plan');
+    }
+  }
+
+  // 5. ATTACH THEME CONTEXT AND PRIMARY STORY
   if (themeCtx) {
     mergedPlan.themeContext = themeCtx;
     if (themeCtx.primaryVisualStory) {
@@ -142,7 +162,7 @@ export function mergeComplementaryPlan(
     mergedPlan.researchFacts = allResearchFacts;
   }
 
-  // 5. ASSEMBLE COMPLEMENTARY DEBUG INFO
+  // 6. ASSEMBLE COMPLEMENTARY DEBUG INFO
   const firstRes = Array.isArray(researchResults) ? researchResults[0] : researchResults;
   const researchAttempted = firstRes?.attempted ?? Boolean(firstRes && firstRes.provider !== 'none');
   const researchSucceeded = firstRes?.success ?? (allResearchFacts.length > 0);
@@ -166,6 +186,8 @@ export function mergeComplementaryPlan(
     productSource: mergedPlan.productSourceState,
     interactionPlannerUsed: Boolean(interactionPlan && interactionPlan.applied),
     interactionPlan,
+    spatialHierarchyPlannerUsed: Boolean(spatialPlan && spatialPlan.applied),
+    spatialHierarchyPlan: spatialPlan,
     complementaryFieldsFilled: filledFields,
     complementaryFieldsRejectedDueToHigherAuthority: rejectedFields,
     researchFailureReason
