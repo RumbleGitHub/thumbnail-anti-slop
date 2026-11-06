@@ -2607,4 +2607,68 @@ console.log('\n30. Testando Complementary Thumbnail Spatial Hierarchy Planner...
 
   delete process.env.COMPLEMENTARY_ENGINES_ENABLED;
 }
+
+// 31. Coerência de prompt: exclusões negadas intactas e sem sujeitos de fixture inventados
+console.log('\n31. Testando Coerência de Prompt (exclusões negadas, ambiente explícito, sujeito fiel)...');
+{
+  process.env.COMPLEMENTARY_ENGINES_ENABLED = 'false';
+  const { generateSimpleThumbnail, interpretUserIntent, describeHeldObjectEn } = await import('../src/lib/simpleEngine/engine.ts');
+  const base = { thumbnailText: '', aspectRatio: '16:9', stylePreset: 'Natural', realismLevel: 'Alto', preserveFace: false, preserveProduct: false };
+  const personRef = [{ id: 'me', name: 'Minha Foto', role: 'PESSOA', url: 'https://example.com/me.jpg' }];
+  const MODELS = ['GERAL', 'OPENAI_GPT_IMAGE_2_5_SUNBURST', 'GOOGLE_NANO_BANANA_2', 'MIDJOURNEY_V8_2', 'FLUX_2_PRO'];
+
+  // 31.1 The provenance purge must not rewrite tokens inside negated clauses.
+  for (const targetModel of MODELS) {
+    const res = generateSimpleThumbnail({ ...base, targetModel, videoTitle: 'Nunca compre isso', ideaDescription: 'Eu segurando um Steam Deck com expressão de desconfiança', references: personRef });
+    assert.ok(!/no (unrequested )?clean neutral background/i.test(res.finalPrompt), `[${targetModel}] exclusão negada não pode virar "no clean neutral background"`);
+    assert.ok(!/negative spaces\b/i.test(res.finalPrompt), `[${targetModel}] "desks" não pode ser reescrito para "negative spaces"`);
+  }
+  console.log('  ✓ TEST 31.1: Exclusões "(no bedrooms, sofas, desks...)" permanecem intactas em todos os adaptadores.');
+
+  // 31.2 An explicitly requested setting must never be forbidden by the same prompt.
+  for (const targetModel of MODELS) {
+    const res = generateSimpleThumbnail({ ...base, targetModel, videoTitle: 'Meu setup', ideaDescription: 'Eu sentado no meu quarto gamer com o monitor atrás', references: personRef });
+    assert.equal(res.scenePlan.environmentOwner, 'USER', `[${targetModel}] ambiente pertence ao usuário`);
+    assert.ok(!/no bedrooms/i.test(res.finalPrompt), `[${targetModel}] quarto pedido explicitamente não pode ser proibido`);
+  }
+  console.log('  ✓ TEST 31.2: Quarto pedido explicitamente nunca é proibido pelo próprio prompt.');
+
+  // 31.3 Archetypes keep the creator's subject instead of injecting fixture content.
+  const cases = [
+    { title: 'A feijoada perfeita', idea: 'Um prato de feijoada fumegante visto de cima', banned: /moss|cracked concrete|weathered structure/i },
+    { title: 'iPhone 17 Pro vs Galaxy S26 Ultra', idea: 'Os dois celulares lado a lado', banned: /retro gaming console|modern gaming console/i, required: 'iPhone 17 Pro vs Galaxy S26 Ultra' },
+    { title: 'Review do meu teclado', idea: 'Só o teclado em cima da mesa, simples', banned: /disassembled|circuitry|repair tools|hex drivers/i },
+    { title: 'Viagem a Paris', idea: 'Torre Eiffel ao entardecer', banned: /moss|cracked concrete|weathered structure/i },
+  ];
+  for (const c of cases) {
+    const intent = interpretUserIntent(c.title, c.idea);
+    const all = `${intent.subjectEn} ${intent.contextEn} ${Object.values(intent.directionPt).join(' ')}`;
+    assert.equal(intent.hasPerson, false, `[${c.title}] nenhuma pessoa foi pedida`);
+    assert.ok(!c.banned.test(all), `[${c.title}] não pode injetar conteúdo de fixture: ${all.slice(0, 160)}`);
+    if (c.required) assert.ok(intent.subjectEn.includes(c.required), `[${c.title}] itens nomeados devem chegar ao sujeito`);
+  }
+  console.log('  ✓ TEST 31.3: Comida, comparação de celulares, teclado e paisagem não viram musgo, console retrô ou desmontagem.');
+
+  // 31.4 The original archetypes still fire when the creator actually asks for them.
+  assert.match(interpretUserIntent('Explorei um hospital abandonado', 'Corredor de um prédio abandonado').subjectEn, /weathered structure/i);
+  assert.match(interpretUserIntent('PS1 vs PS5', 'Um console antigo ao lado de um console moderno').subjectEn, /vintage retro gaming console/i);
+  assert.match(interpretUserIntent('Por dentro do controle', 'Controle desmontado mostrando o circuito').subjectEn, /disassembled device/i);
+  console.log('  ✓ TEST 31.4: Arquétipos de abandono, gerações de console e desmontagem continuam ativos quando pedidos.');
+
+  // 31.5 Held props come from the creator's words, never from a fixture.
+  assert.equal(describeHeldObjectEn('ele segurando o mapa'), 'map');
+  assert.equal(describeHeldObjectEn('Coloque meu rosto no personagem'), null);
+  const swap = generateSimpleThumbnail({ ...base, targetModel: 'FLUX_2_PRO', videoTitle: 'Virei o protagonista', ideaDescription: 'Coloque meu rosto no personagem da imagem alvo sem mudar mais nada', references: [{ id: 'alvo', name: 'Personagem', role: 'IMAGEM_ALVO', url: 'https://example.com/a.jpg', isTarget: true }, ...personRef] });
+  assert.equal(swap.scenePlan.taskType, 'IDENTITY_TRANSFER');
+  assert.ok(!/the map/i.test(swap.finalPrompt), 'Troca de rosto sem mapa não pode mencionar "the map"');
+  console.log('  ✓ TEST 31.5: Objetos segurados vêm do pedido do criador; "the map" não vaza para outras trocas de rosto.');
+
+  // 31.6 Named consoles such as PS2 now receive the product-fidelity lock.
+  const ps2 = generateSimpleThumbnail({ ...base, targetModel: 'GERAL', videoTitle: 'Os melhores jogos de PS2', ideaDescription: 'Eu segurando o PS2 com capas de jogos', references: personRef });
+  assert.ok(ps2.finalPrompt.includes('HARDWARE & PRODUCT FIDELITY (MANDATORY)'), 'PS2 deve receber trava de fidelidade de hardware');
+  assert.ok(!/handheld device/i.test(ps2.finalPrompt.split('NEGATIVE / STRICTLY AVOID:')[0]), 'PS2 de mesa não é descrito como portátil');
+  console.log('  ✓ TEST 31.6: PS2 recebe trava de fidelidade de hardware e não é chamado de portátil.');
+
+  delete process.env.COMPLEMENTARY_ENGINES_ENABLED;
+}
 console.log('\n✅ TODOS OS TESTES PASSARAM COM SUCESSO! VALIDAÇÃO CONCLUÍDA.');
