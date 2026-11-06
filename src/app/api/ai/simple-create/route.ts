@@ -191,6 +191,8 @@ export async function POST(req: NextRequest) {
               productSource: fullyEnrichedPlan.complementaryDebug?.productSource,
               interactionPlannerUsed: fullyEnrichedPlan.complementaryDebug?.interactionPlannerUsed,
               interactionPlan: fullyEnrichedPlan.complementaryDebug?.interactionPlan,
+              spatialHierarchyPlannerUsed: fullyEnrichedPlan.complementaryDebug?.spatialHierarchyPlannerUsed,
+              spatialHierarchyPlan: fullyEnrichedPlan.complementaryDebug?.spatialHierarchyPlan,
               complementaryFieldsFilled: fullyEnrichedPlan.complementaryDebug?.complementaryFieldsFilled,
               complementaryFieldsRejectedDueToHigherAuthority: fullyEnrichedPlan.complementaryDebug?.complementaryFieldsRejectedDueToHigherAuthority,
               researchFailureReason: fullyEnrichedPlan.complementaryDebug?.researchFailureReason

@@ -339,8 +339,7 @@ export function classifyTask(
   const hasTargetRef = references.some(r => r.role === 'IMAGEM_ALVO' || r.isTarget);
   const hasPersonRef = references.some(r => r.role === 'PESSOA');
   const hasProductRef = references.some(r => r.role === 'PRODUTO');
-  const hasSceneRef = references.some(r => r.role === 'CENÁRIO');
-  const hasStyleRef = references.some(r => r.role === 'ESTILO');
+    const hasStyleRef = references.some(r => r.role === 'ESTILO');
   const hasCompRef = references.some(r => r.role === 'COMPOSIÇÃO');
 
   const characterRef = references.find(r =>
@@ -893,8 +892,9 @@ export function extractExistingLighting(text: string): string | null {
  */
 export function buildScenePlan(
   input: CreateThumbnailInput,
-  approachIndex = 0
+  _approachIndex = 0
 ): ScenePlan {
+  void _approachIndex;
   const { videoTitle, ideaDescription, references = [] } = input;
   const userText = `${videoTitle} ${ideaDescription}`.trim();
 
@@ -1656,7 +1656,7 @@ export function buildPromptFromScenePlan(
   input: CreateThumbnailInput,
   approachIndex = 0
 ): PromptBuilderResult {
-  const { videoTitle, ideaDescription, aspectRatio = '16:9', thumbnailText, fontName, reservedSpacePosition, stylePreset = 'Natural', textTreatment, reserveSpaceForText } = input;
+  const { videoTitle, ideaDescription, aspectRatio = '16:9', thumbnailText, fontName, reservedSpacePosition, stylePreset = 'Natural', textTreatment } = input;
   const cleanIdea = ideaDescription.trim() || videoTitle.trim();
   const arParam = aspectRatio === '9:16' ? '9:16 vertical format' : '16:9 widescreen format';
   const targetName = plan.targetImage?.name || 'personagem/imagem mestre';
@@ -2170,7 +2170,6 @@ export function generateSimpleThumbnail(
     targetModel = 'GERAL',
     aspectRatio = '16:9',
     stylePreset = 'Natural',
-    realismLevel = 'Alto',
     preserveFace,
     preserveProduct,
     extraInstructions,
