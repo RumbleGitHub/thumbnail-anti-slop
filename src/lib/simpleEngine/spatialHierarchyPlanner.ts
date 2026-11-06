@@ -5,6 +5,7 @@ import type {
   SpatialHierarchyPlan,
   ThemeContext
 } from '../../types/simple.ts';
+import { requestIncludesPerson } from './personDetection.ts';
 
 // Helper for boundary matching
 function matchBoundary(text: string, pattern: string): boolean {
@@ -82,8 +83,16 @@ export function planSpatialHierarchy(
   }
 
   // 2. IDENTIFY PRIMARY SUBJECT
+  // Same person decision as the engine: object-only scenes must not gain a "Creator" or hands.
+  const hasPerson = requestIncludesPerson(input);
   let primarySubject = 'Creator';
-  if (/(?:reviewer|youtuber|apresentador|creator|analista)/i.test(userText)) {
+  if (!hasPerson) {
+    const isPersonWord = (s: string) => /creator|criador|person|pessoa|reviewer|youtuber|apresentador|human/i.test(s);
+    const planSubject = plan.primarySubject && plan.primarySubject !== 'A compelling hero subject with authentic real-world presence and clean silhouette' && !isPersonWord(plan.primarySubject)
+      ? plan.primarySubject
+      : undefined;
+    primarySubject = planSubject || (themeCtx?.importantSubjects || []).find(s => !isPersonWord(s)) || 'Main subject';
+  } else if (/(?:reviewer|youtuber|apresentador|creator|analista)/i.test(userText)) {
     primarySubject = 'Creator / Reviewer';
   } else if (/(?:eu|meu\s*rosto|minha\s*foto)/i.test(userText)) {
     primarySubject = 'Creator';
@@ -153,11 +162,17 @@ export function planSpatialHierarchy(
   const objectScale = primaryObject ? 'HERO_PROMINENT' : 'RECOGNIZABLE_AT_120PX';
 
   // 7. FOREGROUND PRIORITY & OVERLAP STRATEGY
-  const foregroundPriority = primaryObject
+  const foregroundPriority = !hasPerson
+    ? `${primaryObject || primarySubject} framed prominently in immediate foreground priority`
+    : primaryObject
     ? `${primaryObject} and interacting hands positioned in immediate foreground priority`
     : `${primarySubject} framed prominently in immediate foreground`;
 
-  const overlapStrategy = interactionPlan?.handPlacement
+  const overlapStrategy = !hasPerson
+    ? heroSupportingItems
+      ? 'Hero game covers angled cleanly alongside the console in the foreground without blocking its controls'
+      : 'Natural depth layering: primary object angled forward in the foreground; secondary background recedes'
+    : interactionPlan?.handPlacement
     ? `Natural depth layering: ${interactionPlan.handPlacement}; primary object positioned forward in foreground without occluding face`
     : heroSupportingItems
     ? 'Hero game covers angled cleanly alongside console in chest-level foreground without blocking creator face or console controls'
@@ -170,13 +185,16 @@ export function planSpatialHierarchy(
 
   // 9. THUMBNAIL-SIZE READABILITY RISK
   const thumbnailReadabilityRisk = (hasGameCoversOrInventory || hasMultipleAccessories)
-    ? 'High risk of visual clutter and unreadable items if all objects compete equally; resolved by establishing strict 3-tier hierarchy (Creator > Hero Object/Covers > Subordinate Inventory).'
+    ? `High risk of visual clutter and unreadable items if all objects compete equally; resolved by establishing strict 3-tier hierarchy (${hasPerson ? 'Creator' : 'Hero Object'} > ${hasPerson ? 'Hero Object/Covers' : 'Hero Covers'} > Subordinate Inventory).`
     : 'Ensure primary subject and product maintain bold silhouettes readable at 120px mobile thumbnail scale.';
 
   // 10. COMPOSE PHOTOGRAPHIC COMPOSITION DIRECTIVE
   const coversDirective = heroSupportingItems ? '2-4 iconic hero game covers clearly readable in immediate proximity. ' : '';
   const secondaryDirective = secondaryElements ? `${secondaryElements.join('. ')}. ` : '';
-  const compositionDirective = `Tight medium-close framing establishing clear spatial hierarchy. ${primarySubject} and ${primaryObject || 'hero object'} positioned in immediate foreground proximity with enlarged scale for instant 120px mobile thumbnail legibility. ${coversDirective}${secondaryDirective}Zero artificial relighting or fake glow.`;
+  const focalUnit = hasPerson
+    ? `${primarySubject} and ${primaryObject || 'hero object'} positioned in immediate foreground proximity`
+    : `${primaryObject || primarySubject} positioned large in the immediate foreground`;
+  const compositionDirective = `Tight medium-close framing establishing clear spatial hierarchy. ${focalUnit} with enlarged scale for instant 120px mobile thumbnail legibility. ${coversDirective}${secondaryDirective}Zero artificial relighting or fake glow.`;
 
   return {
     primarySubject,

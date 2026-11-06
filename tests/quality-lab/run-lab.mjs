@@ -104,7 +104,8 @@ function evaluateCreate(c, model) {
   check(r, 'anti-slop', 'no-unrequested-cinematic-light', 'WARN', !/dramatic (rim|back) ?light|golden hour|volumetric/i.test(positive) || /cinemat|dram[aá]tic/i.test(userWords));
 
   if (e.person === false) {
-    check(r, 'intent', 'no-invented-person', 'FAIL', !/\b(the creator|a person|facial identity)\b/i.test(positive));
+    // Any "creator" (e.g. the planner's "Creator and Smartphone ...") or hand interaction invents a person.
+    check(r, 'intent', 'no-invented-person', 'FAIL', !/\b(creator|a person|facial identity|interacting hands)\b/i.test(positive));
     check(r, 'coherence', 'no-human-attributes-without-person', 'WARN', !/(skin texture|human expression|finger count)/i.test(positive));
   }
   // Midjourney receives reference images as parameters (--oref/--cref), so a

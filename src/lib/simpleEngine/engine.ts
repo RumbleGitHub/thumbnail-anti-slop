@@ -40,6 +40,7 @@ import { ResearchBroker } from './researchBroker.ts';
 import { planPhysicalInteraction } from './interactionPlanner.ts';
 import { planSpatialHierarchy, isCompositionAuthoritativelyOwned } from './spatialHierarchyPlanner.ts';
 import { mergeComplementaryPlan } from './complementaryMerge.ts';
+import { PERSON_KEYWORDS } from './personDetection.ts';
 
 export {
   resolveThemeContext,
@@ -2110,8 +2111,7 @@ export function interpretUserIntent(
   const isTech = detectTechHardware(combined);
   const approach = Math.abs(approachIndex) % 3;
 
-  const personKeywords = /(^|\b)(eu|meu\s*rosto|minha\s*rea[çc][ãa]o|pessoa|homem|mulher|criador|criadora|cara|apresentador|apresentadora|youtuber|selfie|jogador|jogadora|especialista|retrato|entrevistad[oa]|convidad[oa]|streamer|influenciador|influenciadora|garot[oa]|menin[oa]|na\s*m[ãa]o|nas\s*m[ãa]os)(\b|$)/i;
-  const hasPerson = hasPersonOverride !== undefined ? hasPersonOverride : personKeywords.test(combined);
+  const hasPerson = hasPersonOverride !== undefined ? hasPersonOverride : PERSON_KEYWORDS.test(combined);
 
   // Archetypes below may only add composition/lighting guidance. They must never
   // replace the creator's subject with fixture content (consoles, moss, teardowns).

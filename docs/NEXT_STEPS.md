@@ -33,14 +33,18 @@ the video title)". Conservative: a name needs a model signal (digits, iPhone-sty
 inside a multi-word name); lone brands ("Apple"), generic words ("Unboxing Gamer") and all-caps titles add nothing.
 Never applied when a TARGET image locks the composition. Snapshots unchanged. Lab: 10 -> 2 FAIL in all modes.
 
+Fixed in cycle 5: **Spatial Hierarchy Planner no longer invents a creator** in object-only scenes. Engine and
+planner share one person rule (`personDetection.ts`: request words, a PESSOA reference or face preservation).
+Without a person the planner frames the object alone ("Smartphone positioned large in the immediate foreground")
+with no hands, face or "Creator" tier; person scenes are unchanged. The lab check now catches any "creator" or
+"interacting hands" in positive text: complementary mode showed 2 hidden failures (phones, keyboard), now 0.
+
 Open, highest value first:
-1. **Spatial Hierarchy Planner invents a creator in object-only scenes** (complementary mode): for
-   "iPhone 17 Pro vs Galaxy S26 Ultra / os dois celulares lado a lado" it emits "Creator and Smartphone positioned
-   in immediate foreground". The lab's invented-person check does not catch the "Creator and ..." wording yet.
-2. **Midjourney has no text instruction for exact overlay text**, and reference images are not mapped to
+1. **Midjourney has no text instruction for exact overlay text**, and reference images are not mapped to
    `--oref`/image prompts (reference names in text mean nothing to it). These are the 2 remaining lab failures.
-3. **No game-cover fidelity instruction** for the flagship "PS2 + recognizable covers" request.
-4. **Raw Portuguese idea text, including meta words ("sem cara de IA", "chamativo"), is pasted into English prompts.**
+2. **No game-cover fidelity instruction** for the flagship "PS2 + recognizable covers" request.
+3. **Raw Portuguese idea text, including meta words ("sem cara de IA", "chamativo"), is pasted into English prompts.**
+4. The spatial planner names one generic object ("Smartphone") for a two-item comparison.
 5. Touch targets of 26-30px on mobile (header tabs, history, secondary buttons).
 
 ---

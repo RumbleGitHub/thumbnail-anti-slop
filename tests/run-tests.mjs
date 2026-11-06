@@ -2806,4 +2806,35 @@ console.log('\n34. Testando Nomes do Título na Cena (extractTitleNames / resolv
 
   delete process.env.COMPLEMENTARY_ENGINES_ENABLED;
 }
+
+// 35. Spatial Hierarchy Planner não inventa criador/mãos em cenas só de objeto
+console.log('\n35. Testando Spatial Hierarchy Planner sem pessoa inventada...');
+{
+  const { buildScenePlan, resolveThemeContext, planSpatialHierarchy } = await import('../src/lib/simpleEngine/engine.ts');
+  const { requestIncludesPerson } = await import('../src/lib/simpleEngine/personDetection.ts');
+  const plan = (input) => {
+    const base = buildScenePlan(input);
+    return planSpatialHierarchy(input, base, resolveThemeContext(input, base));
+  };
+  const objectOnly = [
+    { videoTitle: 'iPhone 17 Pro vs Galaxy S26 Ultra', ideaDescription: 'Os dois celulares lado a lado', references: [], targetModel: 'GERAL' },
+    { videoTitle: 'Review do meu teclado', ideaDescription: 'Só o teclado em cima da mesa, simples', references: [], targetModel: 'GERAL' },
+    { videoTitle: 'A feijoada perfeita', ideaDescription: 'Um prato de feijoada fumegante visto de cima', references: [], targetModel: 'GERAL' },
+    { videoTitle: 'Os melhores jogos de PS2', ideaDescription: 'O PS2 com as capas de GTA e God of War', references: [], targetModel: 'GERAL' },
+  ];
+  for (const input of objectOnly) {
+    assert.equal(requestIncludesPerson(input), false, `[${input.videoTitle}] nenhuma pessoa pedida`);
+    const sp = plan(input);
+    const text = `${sp.primarySubject} ${sp.compositionDirective} ${sp.foregroundPriority} ${sp.overlapStrategy} ${sp.thumbnailReadabilityRisk}`;
+    assert.ok(!/creator|interacting hands|\bface\b/i.test(text), `[${input.videoTitle}] planner não pode inventar criador/mãos/rosto: ${text.slice(0, 200)}`);
+  }
+  console.log('  ✓ TEST 35.1: Celulares, teclado, feijoada e PS2 com capas sem pessoa não ganham "Creator", mãos ou rosto.');
+
+  // 35.2 With a person (keyword or PESSOA reference) the creator-led hierarchy is unchanged.
+  const withPerson = plan({ videoTitle: 'Os melhores jogos de PS2', ideaDescription: 'Eu segurando o PS2 com capas de jogos', references: [], targetModel: 'GERAL' });
+  assert.match(withPerson.compositionDirective, /^Tight medium-close framing establishing clear spatial hierarchy\. Creator and PlayStation 2 console positioned in immediate foreground proximity/);
+  assert.equal(requestIncludesPerson({ videoTitle: 'Review', ideaDescription: 'o teclado', references: [{ id: 'p', name: 'Eu', role: 'PESSOA', url: 'x' }] }), true);
+  assert.equal(requestIncludesPerson({ videoTitle: 'Visitei o museu', ideaDescription: 'Fachada do museu ao entardecer', references: [] }), false, '"museu"/"meu" não contém a palavra "eu"');
+  console.log('  ✓ TEST 35.2: Com pessoa (texto ou PESSOA) a hierarquia Criador > Objeto continua igual; "museu" não vira pessoa.');
+}
 console.log('\n✅ TODOS OS TESTES PASSARAM COM SUCESSO! VALIDAÇÃO CONCLUÍDA.');
