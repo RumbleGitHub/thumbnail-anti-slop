@@ -27,11 +27,18 @@ render the PESSOA face-only lock; all four render product fidelity (PRODUTO refe
 studio background); object-only scenes no longer get skin/expression/hand instructions. Edit tasks and callers
 without `subject` are byte-identical. Lab: 42 -> 10 FAIL (engine, route and complementary modes), 0 regressions.
 
+Fixed in cycle 4: **product names that appear only in the title reach the prompt** (`extractTitleNames`,
+`resolveSceneDescription`) in every adapter, e.g. "(featuring iPhone 17 Pro and Galaxy S26 Ultra, as named in
+the video title)". Conservative: a name needs a model signal (digits, iPhone-style casing, acronym or known brand
+inside a multi-word name); lone brands ("Apple"), generic words ("Unboxing Gamer") and all-caps titles add nothing.
+Never applied when a TARGET image locks the composition. Snapshots unchanged. Lab: 10 -> 2 FAIL in all modes.
+
 Open, highest value first:
-1. **Names only in the title are lost** (e.g. "iPhone 17 Pro vs Galaxy S26 Ultra" in the title, "os dois
-   celulares" in the idea): 8 of the 10 remaining lab failures.
+1. **Spatial Hierarchy Planner invents a creator in object-only scenes** (complementary mode): for
+   "iPhone 17 Pro vs Galaxy S26 Ultra / os dois celulares lado a lado" it emits "Creator and Smartphone positioned
+   in immediate foreground". The lab's invented-person check does not catch the "Creator and ..." wording yet.
 2. **Midjourney has no text instruction for exact overlay text**, and reference images are not mapped to
-   `--oref`/image prompts (reference names in text mean nothing to it).
+   `--oref`/image prompts (reference names in text mean nothing to it). These are the 2 remaining lab failures.
 3. **No game-cover fidelity instruction** for the flagship "PS2 + recognizable covers" request.
 4. **Raw Portuguese idea text, including meta words ("sem cara de IA", "chamativo"), is pasted into English prompts.**
 5. Touch targets of 26-30px on mobile (header tabs, history, secondary buttons).

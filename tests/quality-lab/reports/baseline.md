@@ -4,11 +4,11 @@ Scope: deterministic checks over generated PROMPT text. No images were generated
 
 Complementary engines: false | pipeline: engine
 
-Runs: 62 | checks: 1236 | FAIL: 10 | WARN: 7
+Runs: 62 | checks: 1236 | FAIL: 2 | WARN: 7
 
 | Dimension | pass | fail | warn |
 |---|---|---|---|
-| intent | 466 | 9 | 0 |
+| intent | 474 | 1 | 0 |
 | coherence | 142 | 0 | 0 |
 | anti-slop | 484 | 0 | 0 |
 | reference | 33 | 0 | 7 |
@@ -19,22 +19,14 @@ Runs: 62 | checks: 1236 | FAIL: 10 | WARN: 7
 | Model | avg words | max words |
 |---|---|---|
 | GERAL | 442 | 629 |
-| OPENAI_GPT_IMAGE_2_5_SUNBURST | 393 | 486 |
-| GOOGLE_NANO_BANANA_2 | 198 | 283 |
-| MIDJOURNEY_V8_2 | 66 | 83 |
-| FLUX_2_PRO | 184 | 221 |
+| OPENAI_GPT_IMAGE_2_5_SUNBURST | 396 | 486 |
+| GOOGLE_NANO_BANANA_2 | 200 | 283 |
+| MIDJOURNEY_V8_2 | 67 | 83 |
+| FLUX_2_PRO | 185 | 221 |
 
 ## Failures
 
 - [intent] 03_product_with_reference / MIDJOURNEY_V8_2: includes:headset-pro-x
-- [intent] 04_named_products_no_reference / OPENAI_GPT_IMAGE_2_5_SUNBURST: includes:iPhone 17 Pro
-- [intent] 04_named_products_no_reference / OPENAI_GPT_IMAGE_2_5_SUNBURST: includes:Galaxy S26 Ultra
-- [intent] 04_named_products_no_reference / GOOGLE_NANO_BANANA_2: includes:iPhone 17 Pro
-- [intent] 04_named_products_no_reference / GOOGLE_NANO_BANANA_2: includes:Galaxy S26 Ultra
-- [intent] 04_named_products_no_reference / MIDJOURNEY_V8_2: includes:iPhone 17 Pro
-- [intent] 04_named_products_no_reference / MIDJOURNEY_V8_2: includes:Galaxy S26 Ultra
-- [intent] 04_named_products_no_reference / FLUX_2_PRO: includes:iPhone 17 Pro
-- [intent] 04_named_products_no_reference / FLUX_2_PRO: includes:Galaxy S26 Ultra
 - [typography] 11_exact_portuguese_text / MIDJOURNEY_V8_2: exact-text-verbatim
 
 ## Warnings

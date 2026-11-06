@@ -2636,7 +2636,7 @@ console.log('\n31. Testando Coerência de Prompt (exclusões negadas, ambiente e
   // 31.3 Archetypes keep the creator's subject instead of injecting fixture content.
   const cases = [
     { title: 'A feijoada perfeita', idea: 'Um prato de feijoada fumegante visto de cima', banned: /moss|cracked concrete|weathered structure/i },
-    { title: 'iPhone 17 Pro vs Galaxy S26 Ultra', idea: 'Os dois celulares lado a lado', banned: /retro gaming console|modern gaming console/i, required: 'iPhone 17 Pro vs Galaxy S26 Ultra' },
+    { title: 'iPhone 17 Pro vs Galaxy S26 Ultra', idea: 'Os dois celulares lado a lado', banned: /retro gaming console|modern gaming console/i, required: '(iPhone 17 Pro and Galaxy S26 Ultra)' },
     { title: 'Review do meu teclado', idea: 'Só o teclado em cima da mesa, simples', banned: /disassembled|circuitry|repair tools|hex drivers/i },
     { title: 'Viagem a Paris', idea: 'Torre Eiffel ao entardecer', banned: /moss|cracked concrete|weathered structure/i },
   ];
@@ -2763,6 +2763,46 @@ console.log('\n33. Testando Travas de Identidade/Produto nos Adaptadores (OpenAI
     assert.ok(!/skin texture|human expression|finger count|facial asymmetry/i.test(positive), `[${model}] cena sem pessoa não pode pedir atributos humanos`);
   }
   console.log('  ✓ TEST 33.4: Cena só de objeto não recebe pele, expressão ou mãos em nenhum adaptador.');
+
+  delete process.env.COMPLEMENTARY_ENGINES_ENABLED;
+}
+
+// 34. Nomes de produto citados só no título chegam à cena (sem inventar nomes genéricos)
+console.log('\n34. Testando Nomes do Título na Cena (extractTitleNames / resolveSceneDescription)...');
+{
+  process.env.COMPLEMENTARY_ENGINES_ENABLED = 'false';
+  const { extractTitleNames, resolveSceneDescription, generateSimpleThumbnail } = await import('../src/lib/simpleEngine/engine.ts');
+
+  // 34.1 Real product names are extracted; generic words, lone brands and video words are not.
+  const expected = {
+    'iPhone 17 Pro vs Galaxy S26 Ultra': ['iPhone 17 Pro', 'Galaxy S26 Ultra'],
+    'Testei o Steam Deck OLED': ['Steam Deck OLED'],
+    'RTX 5090 vale a pena?': ['RTX 5090'],
+    'Crimson Desert DLC Gameplay e Novidades': ['Crimson Desert DLC'],
+    'Unboxing Gamer': [],
+    'Review do meu teclado': [],
+    'Meu setup 2026': [],
+    'Por que a Apple cancelou o carro de 10 bilhões de dólares': [],
+    'NUNCA COMPRE ISSO': [],
+  };
+  for (const [title, names] of Object.entries(expected)) {
+    assert.deepEqual(extractTitleNames(title), names, `extractTitleNames("${title}")`);
+  }
+  console.log('  ✓ TEST 34.1: Extrai iPhone 17 Pro, Galaxy S26 Ultra, Steam Deck OLED, RTX 5090; ignora "Unboxing Gamer", "Apple" sozinho e títulos em caixa alta.');
+
+  // 34.2 Names already in the idea are not repeated; a TARGET image never receives title additions.
+  assert.equal(resolveSceneDescription({ videoTitle: 'Os 10 melhores jogos de PS2', ideaDescription: 'Eu segurando o PS2' }), 'Eu segurando o PS2');
+  assert.equal(resolveSceneDescription({ videoTitle: 'RTX 5090 vale a pena?', ideaDescription: 'A placa em cima da mesa' }, true), 'A placa em cima da mesa');
+  assert.equal(resolveSceneDescription({ videoTitle: 'Testei o Steam Deck OLED', ideaDescription: '' }), 'Testei o Steam Deck OLED');
+  console.log('  ✓ TEST 34.2: Sem duplicar nomes já presentes na ideia; Imagem-Alvo não recebe acréscimos do título.');
+
+  // 34.3 Every adapter's prompt now carries title-only product names.
+  const input = { thumbnailText: '', aspectRatio: '16:9', stylePreset: 'Natural', realismLevel: 'Alto', preserveFace: false, preserveProduct: false, videoTitle: 'iPhone 17 Pro vs Galaxy S26 Ultra', ideaDescription: 'Os dois celulares lado a lado', references: [] };
+  for (const targetModel of ['GERAL', 'OPENAI_GPT_IMAGE_2_5_SUNBURST', 'GOOGLE_NANO_BANANA_2', 'MIDJOURNEY_V8_2', 'FLUX_2_PRO']) {
+    const prompt = generateSimpleThumbnail({ ...input, targetModel }).finalPrompt;
+    assert.ok(prompt.includes('iPhone 17 Pro') && prompt.includes('Galaxy S26 Ultra'), `[${targetModel}] nomes do título devem chegar ao prompt`);
+  }
+  console.log('  ✓ TEST 34.3: Nomes citados só no título chegam ao prompt dos 5 adaptadores.');
 
   delete process.env.COMPLEMENTARY_ENGINES_ENABLED;
 }

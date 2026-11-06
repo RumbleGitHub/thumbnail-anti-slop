@@ -187,6 +187,71 @@ export function describeHeldObjectEn(text: string): string | null {
   return HELD_OBJECT_EN[m[1].toLowerCase()] || null;
 }
 
+const KNOWN_BRAND_WORDS = /^(iphone|ipad|macbook|airpods|galaxy|pixel|xiaomi|redmi|poco|motorola|moto|samsung|apple|sony|playstation|xbox|nintendo|switch|steam|legion|rog|lenovo|asus|acer|dell|alienware|razer|logitech|corsair|hyperx|nvidia|geforce|radeon|ryzen|intel|gopro|dji|canon|nikon|fujifilm|tesla|honda|toyota|civic|corolla|volkswagen|fiat|chevrolet|ford|bmw|porsche|ferrari|lego|minecraft|fortnite|zelda|mario|pokemon|pokémon)$/i;
+
+// Words that describe the video, not the object ("Gameplay", "Review", "Unboxing", "Vs").
+const TITLE_VIDEO_WORDS = /^(gameplay|review|reviews|unboxing|teste|testei|tutorial|novidades|vale|vs|versus|top|melhores|piores|dicas|guia|tier|ranking|análise|analise|comparativo)$/i;
+
+/** A token that clearly signals a product/proper name rather than an ordinary capitalized word. */
+function isStrongNameToken(token: string): boolean {
+  return /[A-Za-z]\d|\d[A-Za-z]/.test(token) ||   // S26, PS5, RTX4090, 4K
+    /^[a-z]+[A-Z]/.test(token) ||                 // iPhone, eFootball
+    /^[A-Z]{2,5}$/.test(token) ||                 // OLED, GTA, DLC
+    KNOWN_BRAND_WORDS.test(token);
+}
+
+/**
+ * Product/proper names that appear in the video title, e.g. "iPhone 17 Pro vs Galaxy S26 Ultra"
+ * -> ["iPhone 17 Pro", "Galaxy S26 Ultra"]. Conservative: a run of capitalized/numeric tokens is kept
+ * only when it contains a strong name token, so "Unboxing Gamer" or "Testei" never qualify.
+ */
+export function extractTitleNames(title: string): string[] {
+  const text = (title || '').trim();
+  // An all-caps title has no usable capitalization signal.
+  if (!text || text === text.toUpperCase()) return [];
+  const tokens = text.split(/\s+/);
+  const names: string[] = [];
+  let run: string[] = [];
+  const flush = () => {
+    // A lone brand or acronym ("Apple", "GTA") names a topic, not a specific object to draw.
+    const qualifies = run.length > 1
+      ? run.some(isStrongNameToken)
+      : run.length === 1 && (/[A-Za-z]\d|\d[A-Za-z]/.test(run[0]) || /^[a-z]+[A-Z]/.test(run[0]));
+    if (qualifies) names.push(run.join(' '));
+    run = [];
+  };
+  for (const raw of tokens) {
+    const token = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}+]+$/gu, '');
+    if (TITLE_VIDEO_WORDS.test(token)) { flush(); continue; }
+    const startsName = /^\p{Lu}/u.test(token) || /^[a-z]+[A-Z]/.test(token) || /[A-Za-z]\d|\d[A-Za-z]/.test(token);
+    const continuesName = run.length > 0 && /^\d+$/.test(token); // "iPhone 17"
+    if (token && (startsName || continuesName)) run.push(token);
+    else flush();
+    if (/[,:;!?()|]$|—|–/.test(raw)) flush();
+  }
+  flush();
+  return names;
+}
+
+/**
+ * Scene text for new compositions: the creator's idea, plus product/proper names that appear only in
+ * the title ("iPhone 17 Pro vs Galaxy S26 Ultra" + "os dois celulares lado a lado"). With a TARGET image
+ * the composition is locked, so nothing from the title is added.
+ */
+export function resolveSceneDescription(
+  input: Pick<CreateThumbnailInput, 'videoTitle' | 'ideaDescription'>,
+  hasTargetImage = false
+): string {
+  const idea = (input.ideaDescription || '').trim();
+  const title = (input.videoTitle || '').trim();
+  if (!idea) return title;
+  if (hasTargetImage) return idea;
+  const ideaLower = idea.toLowerCase();
+  const missing = extractTitleNames(title).filter(name => !ideaLower.includes(name.toLowerCase()));
+  if (missing.length === 0) return idea;
+  return `${idea.replace(/[.!\s]+$/, '')} (featuring ${missing.join(' and ')}, as named in the video title)`;
+}
+
 // Translates vague buzzwords into concrete visual decisions (Rule 10)
 export function translateVagueBuzzwords(text: string): string[] {
   const decisions: string[] = [];
@@ -1154,7 +1219,7 @@ export function buildOpenAIStructuredPrompt({
   subject?: NewSceneSubject;
 }): string {
   const { videoTitle = '', ideaDescription = '', references = [], extraInstructions } = input;
-  const cleanIdea = ideaDescription.trim() || videoTitle.trim();
+  const cleanIdea = resolveSceneDescription(input, Boolean(plan.targetImage));
   const targetName = plan.targetImage?.name || 'personagem/imagem mestre';
   const idName = plan.identitySource?.name || 'foto de identidade';
   const prodName = plan.productSource?.name || 'novo produto';
@@ -1420,7 +1485,7 @@ export function buildGooglePrompt({
   arParam,
   subject
 }: GooglePromptOptions): string {
-  const cleanIdea = (input.ideaDescription || '').trim() || (input.videoTitle || '').trim();
+  const cleanIdea = resolveSceneDescription(input, Boolean(plan.targetImage));
   const refs = input.references || [];
   const targetName = plan.targetImage?.name || 'personagem mestre';
   const idName = plan.identitySource?.name || 'foto de identidade';
@@ -1570,7 +1635,7 @@ export function buildMidjourneyPrompt({
   variant,
   subject
 }: MidjourneyPromptOptions): string {
-  const cleanIdea = (input.ideaDescription || '').trim() || (input.videoTitle || '').trim();
+  const cleanIdea = resolveSceneDescription(input, Boolean(plan.targetImage));
   const arFlag = input.aspectRatio === '9:16' ? '--ar 9:16' : '--ar 16:9';
   const targetName = plan.targetImage?.name || 'target character';
   const idName = plan.identitySource?.name || 'reference person';
@@ -1647,7 +1712,7 @@ export function buildFluxPrompt({
   arParam,
   subject
 }: FluxPromptOptions): string {
-  const cleanIdea = (input.ideaDescription || '').trim() || (input.videoTitle || '').trim();
+  const cleanIdea = resolveSceneDescription(input, Boolean(plan.targetImage));
   const refs = input.references || [];
   const targetName = plan.targetImage?.name || 'target character';
   const idName = plan.identitySource?.name || 'identity photo';
@@ -1818,7 +1883,7 @@ export function buildPromptFromScenePlan(
   approachIndex = 0
 ): PromptBuilderResult {
   const { videoTitle, ideaDescription, aspectRatio = '16:9', thumbnailText, fontName, reservedSpacePosition, stylePreset = 'Natural', textTreatment } = input;
-  const cleanIdea = ideaDescription.trim() || videoTitle.trim();
+  const cleanIdea = resolveSceneDescription(input, Boolean(plan.targetImage));
   const arParam = aspectRatio === '9:16' ? '9:16 vertical format' : '16:9 widescreen format';
   const targetName = plan.targetImage?.name || 'personagem/imagem mestre';
   const idName = plan.identitySource?.name || 'foto de identidade';
@@ -2080,11 +2145,12 @@ export function interpretUserIntent(
     /(antigo|retr[oô]|cl[áa]ssico|moderno|novo|evolu[çc][ãa]o|gera[çc][ãa]o)/i.test(combined);
   if (isSideBySide && !isConsoleGenerationCompare) {
     // Compare exactly what the creator named (often only in the title, e.g. "iPhone 17 Pro vs Galaxy S26 Ultra").
-    const compared = [title.trim(), idea.trim()].filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i).join(' — ');
+    const namedItems = [...new Set([...extractTitleNames(title), ...extractTitleNames(idea)])];
+    const compared = namedItems.length >= 2 ? ` (${namedItems.join(' and ')})` : '';
     return {
       approachTitle: 'Comparação Direta Lado a Lado',
       hasPerson: false,
-      subjectEn: `Direct physical side-by-side comparison of the exact items named in "${compared}", placed next to each other at true relative scale, each instantly recognizable by its authentic silhouette, proportions, and real design details`,
+      subjectEn: `Direct physical side-by-side comparison of the exact items named in the scene${compared}, placed next to each other at true relative scale, each instantly recognizable by its authentic silhouette, proportions, and real design details`,
       contextEn: hasExplicitEnv
         ? resolvedContextEn
         : 'Clean neutral surface with soft natural optical falloff, calm background that keeps both items as the only focal points',
@@ -2577,7 +2643,7 @@ export function generateSimpleThumbnail(
   }
 
   // Build clean prompt body (Neutral by default, no forced "cinematic" unless requested)
-  const cleanIdea = ideaDescription.trim() || videoTitle.trim();
+  const cleanIdea = resolveSceneDescription(input, Boolean(enrichedPlan.targetImage));
   const arParam = aspectRatio === '9:16' ? '9:16 vertical format' : '16:9 widescreen format';
   const styleTreatment = stylePreset !== 'Natural' ? `${stylePreset} visual treatment, ` : '';
 
