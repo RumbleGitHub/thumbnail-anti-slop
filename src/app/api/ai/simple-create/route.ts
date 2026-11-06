@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   generateSimpleThumbnail,
   buildScenePlan,
-  buildPromptFromScenePlan,
-  auditPromptProvenance,
   isComplementaryEnginesEnabled,
   resolveThemeContext,
   ResearchBroker,
@@ -23,6 +21,8 @@ import type { DirectorResult, AuditorResult } from '@/lib/ai/types';
 
 export async function POST(req: NextRequest) {
   const startTime = Date.now();
+  // Kept outside the try so the safety net below can reuse it: a request body can only be read once.
+  let parsedBody: CreateThumbnailInput | null = null;
   try {
     const rawBody = await req.json();
     const body: CreateThumbnailInput = {
@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
       videoTitle: rawBody.videoTitle || '',
       references: rawBody.references || []
     };
+    parsedBody = body;
 
     // 1. LOCAL INITIAL CLASSIFICATION & BASELINE SCENE PLAN
     const localScenePlan = buildScenePlan(body, body.approachIndex || 0);
@@ -88,12 +89,11 @@ export async function POST(req: NextRequest) {
       fullyEnrichedPlan = mergeComplementaryPlan(reconciledPlan, body, themeCtx, researchResults, interactionPlan, spatialPlan);
     }
 
-    // 4. PROMPT BUILDER
-    const builderResult = buildPromptFromScenePlan(fullyEnrichedPlan, body, body.approachIndex || 0);
-
-    // 5. LOCAL FINAL VALIDATOR & PROVENANCE AUDIT
-    const audit = auditPromptProvenance(builderResult.finalPrompt, fullyEnrichedPlan, body.references);
-    let finalCleanedPrompt = audit.cleanedPrompt;
+    // 4 + 5. PROMPT RENDERING + PROVENANCE AUDIT
+    // Same path as generateSimpleThumbnail (and every contract test): intent interpretation,
+    // role-isolated preservation locks, typography rules, model adapter, then the Provenance Guard.
+    const engineResult = generateSimpleThumbnail(body, { plan: fullyEnrichedPlan });
+    let finalCleanedPrompt = engineResult.finalPrompt;
 
     // 6. OPTIONAL SECOND VISUAL AUDITOR (Gemini) — Section 19-25
     const { auditor, providerName: audProvider } = getVisualAuditor(dirProvider);
@@ -142,22 +142,23 @@ export async function POST(req: NextRequest) {
 
     // Combine any removed details or warnings
     const allPurged = [
-      ...(audit.purged || []),
+      ...(engineResult.scenePlan?.unsupportedDetailsRemoved || []),
       ...(reconciledPlan.unsupportedDetailsRemoved || [])
     ];
 
     const responsePayload = {
       isLocal: directorResult === null,
-      direction: builderResult.directionPt,
+      direction: engineResult.direction,
       finalPrompt: finalCleanedPrompt,
-      approachTitle: builderResult.approachTitle,
+      approachTitle: engineResult.approachTitle,
       approachIndex: body.approachIndex || 0,
-      typographyPlan: builderResult.typographyPlan,
+      typographyPlan: engineResult.typographyPlan,
       scenePlan: {
         ...fullyEnrichedPlan,
         unsupportedDetailsRemoved: allPurged
       },
-      outputMetadata: builderResult.outputMetadata,
+      outputMetadata: engineResult.outputMetadata,
+      targetModel: engineResult.targetModel,
       // Development debug data (Section 31 & Complementary Trace)
       ...(process.env.NODE_ENV !== 'production' || req.headers.get('x-debug-trace') === 'true'
         ? {
@@ -206,7 +207,8 @@ export async function POST(req: NextRequest) {
     console.error('Error in /api/ai/simple-create:', error);
     // Ultimate deterministic safety net
     try {
-      const localResult = generateSimpleThumbnail(await req.json());
+      if (!parsedBody) throw new Error('Request body could not be parsed');
+      const localResult = generateSimpleThumbnail(parsedBody);
       return NextResponse.json({
         ...localResult,
         isLocal: true

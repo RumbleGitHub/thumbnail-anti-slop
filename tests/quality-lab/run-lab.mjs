@@ -57,12 +57,23 @@ function check(results, dimension, id, severity, ok, detail = '') {
 // director is absent). This is what creators get from the running app offline.
 const PIPELINE = [...args].find(a => a.startsWith('--pipeline='))?.split('=')[1] || 'engine';
 
+// --pipeline=legacy-route reproduces the route before cycle 2 (generic buildPromptFromScenePlan template).
 function runCreate(input) {
-  if (PIPELINE !== 'route') return engine.generateSimpleThumbnail(input);
+  if (PIPELINE === 'engine') return engine.generateSimpleThumbnail(input);
   const plan = engine.buildScenePlan(input, input.approachIndex || 0);
-  const built = engine.buildPromptFromScenePlan(plan, input, input.approachIndex || 0);
-  const audit = engine.auditPromptProvenance(built.finalPrompt, plan, input.references);
-  return { ...built, direction: built.directionPt, finalPrompt: audit.cleanedPrompt };
+  if (PIPELINE === 'legacy-route') {
+    const built = engine.buildPromptFromScenePlan(plan, input, input.approachIndex || 0);
+    const audit = engine.auditPromptProvenance(built.finalPrompt, plan, input.references);
+    return { ...built, direction: built.directionPt, finalPrompt: audit.cleanedPrompt };
+  }
+  let enriched = plan;
+  if (engine.isComplementaryEnginesEnabled()) {
+    const theme = engine.resolveThemeContext(input, plan);
+    const interaction = engine.planPhysicalInteraction(input, plan, theme, []);
+    const spatial = engine.planSpatialHierarchy(input, plan, theme, interaction);
+    enriched = engine.mergeComplementaryPlan(plan, input, theme, [], interaction, spatial);
+  }
+  return engine.generateSimpleThumbnail(input, { plan: enriched });
 }
 
 function evaluateCreate(c, model) {
@@ -158,7 +169,7 @@ for (const run of runs) (wordsByModel[run.model] ??= []).push(run.words);
 const avg = xs => Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
 
 let baseline = null;
-const baselinePath = path.join(reportsDir, PIPELINE === 'route' ? 'baseline-route.json' : 'baseline.json');
+const baselinePath = path.join(reportsDir, PIPELINE === 'engine' ? 'baseline.json' : 'baseline-route.json');
 if (fs.existsSync(baselinePath) && !args.has('--save-baseline')) baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
 const key = ch => `${ch.caseId}|${ch.model}|${ch.id}`;
 const baseFails = new Set((baseline?.checks || []).filter(ch => !ch.ok && ch.severity === 'FAIL').map(key));

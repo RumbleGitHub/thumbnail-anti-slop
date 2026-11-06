@@ -2671,4 +2671,53 @@ console.log('\n31. Testando Coerência de Prompt (exclusões negadas, ambiente e
 
   delete process.env.COMPLEMENTARY_ENGINES_ENABLED;
 }
+
+// 32. Contrato de pipeline único: a rota /api/ai/simple-create renderiza pelo mesmo caminho testado
+console.log('\n32. Testando Pipeline Único (rota da API === generateSimpleThumbnail)...');
+{
+  const engine = await import('../src/lib/simpleEngine/engine.ts');
+  const { GOLDEN_CASES, LAB_MODELS } = await import('./quality-lab/golden-cases.mjs');
+  const base = { thumbnailText: '', aspectRatio: '16:9', stylePreset: 'Natural', realismLevel: 'Alto', preserveFace: false, preserveProduct: false, approachIndex: 0 };
+
+  // Mirrors the route: buildScenePlan -> (no director) -> complementary merge -> generateSimpleThumbnail({ plan }).
+  const routeEquivalent = (input) => {
+    const local = engine.buildScenePlan(input, input.approachIndex || 0);
+    let plan = local;
+    if (engine.isComplementaryEnginesEnabled()) {
+      const theme = engine.resolveThemeContext(input, local);
+      const interaction = engine.planPhysicalInteraction(input, local, theme, []);
+      const spatial = engine.planSpatialHierarchy(input, local, theme, interaction);
+      plan = engine.mergeComplementaryPlan(local, input, theme, [], interaction, spatial);
+    }
+    return engine.generateSimpleThumbnail(input, { plan });
+  };
+
+  for (const flag of ['false', 'true']) {
+    process.env.COMPLEMENTARY_ENGINES_ENABLED = flag;
+    let compared = 0;
+    for (const c of GOLDEN_CASES.filter(g => g.kind === 'create')) {
+      for (const targetModel of LAB_MODELS) {
+        const input = { ...base, ...c.input, targetModel };
+        const viaRoute = routeEquivalent(input);
+        const viaEngine = engine.generateSimpleThumbnail(input, { researchResults: [] });
+        assert.equal(viaRoute.finalPrompt, viaEngine.finalPrompt, `[${c.id}][${targetModel}][complementary=${flag}] prompt da rota diverge do motor testado`);
+        assert.deepEqual(viaRoute.direction, viaEngine.direction, `[${c.id}][${targetModel}] direção diverge`);
+        assert.equal(viaRoute.typographyPlan, viaEngine.typographyPlan, `[${c.id}][${targetModel}] plano tipográfico diverge`);
+        compared++;
+      }
+    }
+    console.log(`  ✓ TEST 32.${flag === 'false' ? 1 : 2}: ${compared} casos idênticos entre rota e motor (complementary=${flag}).`);
+  }
+
+  // 32.3 The default GERAL route output now carries the role-isolated locks the old template dropped.
+  process.env.COMPLEMENTARY_ENGINES_ENABLED = 'false';
+  const ps2 = routeEquivalent({ ...base, targetModel: 'GERAL', videoTitle: 'Os melhores jogos de PS2', ideaDescription: 'Eu segurando o PS2 com capas de jogos', references: [{ id: 'me', name: 'Minha Foto', role: 'PESSOA', url: 'https://example.com/me.jpg' }] });
+  assert.ok(ps2.finalPrompt.includes('FACIAL FIDELITY (MANDATORY) (Minha Foto)'), 'Rota deve aplicar trava facial da referência PESSOA');
+  assert.ok(ps2.finalPrompt.includes('HARDWARE & PRODUCT FIDELITY (MANDATORY)'), 'Rota deve aplicar trava de hardware');
+  const food = routeEquivalent({ ...base, targetModel: 'GERAL', videoTitle: 'A feijoada perfeita', ideaDescription: 'Um prato de feijoada fumegante visto de cima', references: [] });
+  assert.ok(!food.finalPrompt.includes('HUMAN EXPRESSION'), 'Rota não pode pedir expressão humana para uma cena sem pessoa');
+  console.log('  ✓ TEST 32.3: Rota padrão (GERAL) aplica travas de identidade/produto e não inventa pessoa.');
+
+  delete process.env.COMPLEMENTARY_ENGINES_ENABLED;
+}
 console.log('\n✅ TODOS OS TESTES PASSARAM COM SUCESSO! VALIDAÇÃO CONCLUÍDA.');

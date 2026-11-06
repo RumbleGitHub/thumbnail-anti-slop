@@ -2295,6 +2295,12 @@ export function generateSimpleThumbnail(
   input: CreateThumbnailInput,
   options?: {
     researchResults?: ResearchResult | ResearchResult[] | null;
+    /**
+     * A ScenePlan already resolved upstream (director reconciliation + complementary merge),
+     * as done by POST /api/ai/simple-create. When given, the plan is used as-is so the API
+     * and this function render through exactly the same prompt path.
+     */
+    plan?: ScenePlan;
   }
 ): CreateThumbnailResult {
   const {
@@ -2315,21 +2321,29 @@ export function generateSimpleThumbnail(
     approachIndex = 0
   } = input;
 
-  // 0. Hidden Pipeline: Intent Router, Target/Source Resolution & ScenePlan
-  const scenePlan = buildScenePlan(input, approachIndex);
-
-  // 0.5 Complementary Pass (Theme Context, Research Facts, Physical Interaction, Spatial Hierarchy)
-  // Strictly conditional on master kill switch COMPLEMENTARY_ENGINES_ENABLED=true
   const complementaryEnabled = isComplementaryEnginesEnabled();
-  const themeCtx = complementaryEnabled ? resolveThemeContext(input, scenePlan) : undefined;
-  const rawFacts = (complementaryEnabled && options?.researchResults)
-    ? (Array.isArray(options.researchResults) ? options.researchResults.flatMap(r => r.facts) : options.researchResults.facts)
-    : undefined;
-  const interactionPlan = complementaryEnabled ? planPhysicalInteraction(input, scenePlan, themeCtx, rawFacts) : undefined;
-  const spatialPlan = complementaryEnabled ? planSpatialHierarchy(input, scenePlan, themeCtx, interactionPlan) : undefined;
-  const enrichedPlan = complementaryEnabled
-    ? mergeComplementaryPlan(scenePlan, input, themeCtx, options?.researchResults, interactionPlan, spatialPlan)
-    : scenePlan;
+  let enrichedPlan: ScenePlan;
+  let themeCtx: ScenePlan['themeContext'];
+
+  if (options?.plan) {
+    enrichedPlan = options.plan;
+    themeCtx = options.plan.themeContext;
+  } else {
+    // 0. Hidden Pipeline: Intent Router, Target/Source Resolution & ScenePlan
+    const scenePlan = buildScenePlan(input, approachIndex);
+
+    // 0.5 Complementary Pass (Theme Context, Research Facts, Physical Interaction, Spatial Hierarchy)
+    // Strictly conditional on master kill switch COMPLEMENTARY_ENGINES_ENABLED=true
+    themeCtx = complementaryEnabled ? resolveThemeContext(input, scenePlan) : undefined;
+    const rawFacts = (complementaryEnabled && options?.researchResults)
+      ? (Array.isArray(options.researchResults) ? options.researchResults.flatMap(r => r.facts) : options.researchResults.facts)
+      : undefined;
+    const interactionPlan = complementaryEnabled ? planPhysicalInteraction(input, scenePlan, themeCtx, rawFacts) : undefined;
+    const spatialPlan = complementaryEnabled ? planSpatialHierarchy(input, scenePlan, themeCtx, interactionPlan) : undefined;
+    enrichedPlan = complementaryEnabled
+      ? mergeComplementaryPlan(scenePlan, input, themeCtx, options?.researchResults, interactionPlan, spatialPlan)
+      : scenePlan;
+  }
 
   // If this is an edit / reconstruction task (IDENTITY_TRANSFER, REPLACE_OBJECT, CHANGE_ENVIRONMENT)
   if (
@@ -2338,9 +2352,11 @@ export function generateSimpleThumbnail(
     enrichedPlan.taskType === 'CHANGE_ENVIRONMENT'
   ) {
     const builderResult = buildPromptFromScenePlan(enrichedPlan, input, approachIndex);
+    // Same Provenance Guard the API has always applied to edit prompts.
+    const editAudit = auditPromptProvenance(builderResult.finalPrompt, enrichedPlan, references);
     return {
       direction: builderResult.directionPt,
-      finalPrompt: builderResult.finalPrompt,
+      finalPrompt: editAudit.cleanedPrompt,
       approachTitle: builderResult.approachTitle,
       approachIndex,
       typographyPlan: builderResult.typographyPlan,

@@ -5,6 +5,7 @@ Answers one question: **did this change make the prompts better or worse?**
 ```bash
 npm run lab                       # engine pipeline (generateSimpleThumbnail), complementary off
 npm run lab -- --pipeline=route   # what POST /api/ai/simple-create returns offline (no AI director)
+npm run lab -- --pipeline=legacy-route  # the route as it was before cycle 2 (for comparison)
 npm run lab -- --complementary    # same checks with COMPLEMENTARY_ENGINES_ENABLED=true
 npm run lab -- --strict           # exit 1 on any FAIL check or regression vs. baseline
 npm run lab -- --save-baseline    # store this run as reports/baseline(.route).{json,md}

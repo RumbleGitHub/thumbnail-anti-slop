@@ -15,19 +15,21 @@ explicit bedroom/scenario forbidden by FLUX/Google, archetypes injecting fixture
 food/portraits, retro consoles for any "vs", teardown for any device, Legion Go, "the map", "heavy armor"),
 PS2/headset/celular not detected as hardware, offline Analyze presented as a real image inspection.
 
+Fixed in cycle 2 (approved): **single CREATE pipeline.** `POST /api/ai/simple-create` now renders through
+`generateSimpleThumbnail(body, { plan })` with its director-reconciled, complementary-enriched plan, so the API
+runs the same path as every contract test (suite 32: 60/60 identical with complementary off and on; live API
+60/60 identical). Route lab: 58 -> 42 FAIL. The route's error safety net no longer re-reads the consumed body.
+`buildPromptFromScenePlan` keeps rendering edit tasks; its NEW_SCENE template is now unused by the app.
+`tests/runtime-validation.mjs` expects a server started with `COMPLEMENTARY_ENGINES_ENABLED=true` (case 3 reads `debugInfo.theme`).
+
 Open, highest value first:
-1. **Two CREATE pipelines.** `POST /api/ai/simple-create` calls `buildPromptFromScenePlan` directly, while the
-   snapshots, most tests and `generateSimpleThumbnail` use a different NEW_SCENE path. For GERAL the route
-   emits a generic template (always "HUMAN EXPRESSION" + hands, canned direction) with no identity or product
-   lock. `npm run lab -- --pipeline=route`: product-fidelity check fails 30/30. Unifying needs approval:
-   it changes the default output for every request.
-2. **Adapters drop product and identity locks for NEW_SCENE** (OpenAI, Google, Midjourney, FLUX): a PRODUTO
+1. **Adapters drop product and identity locks for NEW_SCENE** (OpenAI, Google, Midjourney, FLUX): a PRODUTO
    reference is listed but never constrained; FLUX ignores PESSOA references.
-3. **Names only in the title are lost** (e.g. "iPhone 17 Pro vs Galaxy S26 Ultra" in the title, "os dois
+2. **Names only in the title are lost** (e.g. "iPhone 17 Pro vs Galaxy S26 Ultra" in the title, "os dois
    celulares" in the idea).
-4. **No game-cover fidelity instruction** for the flagship "PS2 + recognizable covers" request.
-5. **Raw Portuguese idea text, including meta words ("sem cara de IA", "chamativo"), is pasted into English prompts.**
-6. Touch targets of 26-30px on mobile (header tabs, history, secondary buttons).
+3. **No game-cover fidelity instruction** for the flagship "PS2 + recognizable covers" request.
+4. **Raw Portuguese idea text, including meta words ("sem cara de IA", "chamativo"), is pasted into English prompts.**
+5. Touch targets of 26-30px on mobile (header tabs, history, secondary buttons).
 
 ---
 
