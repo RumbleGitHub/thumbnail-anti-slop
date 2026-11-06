@@ -44,3 +44,6 @@ next-env.d.ts
 # graphify
 graphify-out/
 
+
+# quality-lab scratch output (regenerated on every run)
+/tests/quality-lab/reports/latest.*
