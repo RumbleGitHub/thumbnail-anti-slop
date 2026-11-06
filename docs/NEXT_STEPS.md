@@ -8,16 +8,33 @@ This document lists real pending tasks, verified limitations, and technical debt
 
 ---
 
+## 0. CYCLE 1 FINDINGS (measured with `npm run lab`, see `tests/quality-lab/`)
+
+Fixed in cycle 1: negated exclusions rewritten into "no clean neutral background" (OpenAI, Google, FLUX),
+explicit bedroom/scenario forbidden by FLUX/Google, archetypes injecting fixture subjects (moss ruin for
+food/portraits, retro consoles for any "vs", teardown for any device, Legion Go, "the map", "heavy armor"),
+PS2/headset/celular not detected as hardware, offline Analyze presented as a real image inspection.
+
+Open, highest value first:
+1. **Two CREATE pipelines.** `POST /api/ai/simple-create` calls `buildPromptFromScenePlan` directly, while the
+   snapshots, most tests and `generateSimpleThumbnail` use a different NEW_SCENE path. For GERAL the route
+   emits a generic template (always "HUMAN EXPRESSION" + hands, canned direction) with no identity or product
+   lock. `npm run lab -- --pipeline=route`: product-fidelity check fails 30/30. Unifying needs approval:
+   it changes the default output for every request.
+2. **Adapters drop product and identity locks for NEW_SCENE** (OpenAI, Google, Midjourney, FLUX): a PRODUTO
+   reference is listed but never constrained; FLUX ignores PESSOA references.
+3. **Names only in the title are lost** (e.g. "iPhone 17 Pro vs Galaxy S26 Ultra" in the title, "os dois
+   celulares" in the idea).
+4. **No game-cover fidelity instruction** for the flagship "PS2 + recognizable covers" request.
+5. **Raw Portuguese idea text, including meta words ("sem cara de IA", "chamativo"), is pasted into English prompts.**
+6. Touch targets of 26-30px on mobile (header tabs, history, secondary buttons).
+
+---
+
 ## 1. CONFIRMED BUGS & LINT WARNINGS
 
-### 1.1 Unused Variable Warnings in `src/lib/simpleEngine/engine.ts`
-During `npm run lint`, ESLint reports 4 `@typescript-eslint/no-unused-vars` warnings:
-- `engine.ts:342`: `hasSceneRef` is assigned a value but never used in `resolveTargetAndSources`.
-- `engine.ts:896`: `approachIndex` is assigned a value but never used in `buildScenePlan`.
-- `engine.ts:1659`: `reserveSpaceForText` is assigned a value but never used in `planTypography`.
-- `engine.ts:2173`: `realismLevel` is assigned a value but never used in `generateSimpleThumbnail`.
-
-**Action**: Prefix with underscore (`_hasSceneRef`, etc.) or safely integrate into relevant branches without altering existing prompt generation behavior.
+### 1.1 Unused Variable Warnings — resolved
+Verified on `b4f7cc0`: `npm run lint` reports no warnings. The four warnings previously listed here no longer exist.
 
 ---
 
