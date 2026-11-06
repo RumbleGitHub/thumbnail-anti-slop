@@ -22,11 +22,16 @@ runs the same path as every contract test (suite 32: 60/60 identical with comple
 `buildPromptFromScenePlan` keeps rendering edit tasks; its NEW_SCENE template is now unused by the app.
 `tests/runtime-validation.mjs` expects a server started with `COMPLEMENTARY_ENGINES_ENABLED=true` (case 3 reads `debugInfo.theme`).
 
+Fixed in cycle 3: **adapters receive the engine's new-scene locks** (`NewSceneSubject`). OpenAI, Google and FLUX
+render the PESSOA face-only lock; all four render product fidelity (PRODUTO reference geometry only, never its
+studio background); object-only scenes no longer get skin/expression/hand instructions. Edit tasks and callers
+without `subject` are byte-identical. Lab: 42 -> 10 FAIL (engine, route and complementary modes), 0 regressions.
+
 Open, highest value first:
-1. **Adapters drop product and identity locks for NEW_SCENE** (OpenAI, Google, Midjourney, FLUX): a PRODUTO
-   reference is listed but never constrained; FLUX ignores PESSOA references.
-2. **Names only in the title are lost** (e.g. "iPhone 17 Pro vs Galaxy S26 Ultra" in the title, "os dois
-   celulares" in the idea).
+1. **Names only in the title are lost** (e.g. "iPhone 17 Pro vs Galaxy S26 Ultra" in the title, "os dois
+   celulares" in the idea): 8 of the 10 remaining lab failures.
+2. **Midjourney has no text instruction for exact overlay text**, and reference images are not mapped to
+   `--oref`/image prompts (reference names in text mean nothing to it).
 3. **No game-cover fidelity instruction** for the flagship "PS2 + recognizable covers" request.
 4. **Raw Portuguese idea text, including meta words ("sem cara de IA", "chamativo"), is pasted into English prompts.**
 5. Touch targets of 26-30px on mobile (header tabs, history, secondary buttons).

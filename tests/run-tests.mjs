@@ -2720,4 +2720,50 @@ console.log('\n32. Testando Pipeline Único (rota da API === generateSimpleThumb
 
   delete process.env.COMPLEMENTARY_ENGINES_ENABLED;
 }
+
+// 33. Adaptadores de modelo recebem as mesmas travas de identidade e produto do motor
+console.log('\n33. Testando Travas de Identidade/Produto nos Adaptadores (OpenAI, Google, Midjourney, FLUX)...');
+{
+  process.env.COMPLEMENTARY_ENGINES_ENABLED = 'false';
+  const { generateSimpleThumbnail } = await import('../src/lib/simpleEngine/engine.ts');
+  const base = { thumbnailText: '', aspectRatio: '16:9', stylePreset: 'Natural', realismLevel: 'Alto', preserveFace: false, preserveProduct: false };
+  const me = { id: 'me', name: 'Minha Foto', role: 'PESSOA', url: 'https://example.com/me.jpg' };
+  const headset = { id: 'hs', name: 'Headset Pro X', role: 'PRODUTO', url: 'https://example.com/hs.jpg' };
+  const run = (targetModel, extra) => generateSimpleThumbnail({ ...base, targetModel, ...extra }).finalPrompt;
+  const ps2 = { videoTitle: 'Os melhores jogos de PS2', ideaDescription: 'Eu segurando o PS2 com capas de jogos', references: [me] };
+
+  // 33.1 Identity reference owns only the face, in every adapter that can express it in text.
+  const identityByModel = {
+    OPENAI_GPT_IMAGE_2_5_SUNBURST: /Facial identity from person reference "Minha Foto".*Do not copy clothing, background, lighting, or pose/,
+    GOOGLE_NANO_BANANA_2: /Facial Identity: Image 1 \("Minha Foto"\) controls .* only\. Clothing, background, lighting, and pose come from this scene/,
+    FLUX_2_PRO: /Use the person from Image 1 \("Minha Foto"\) for facial identity only/,
+  };
+  for (const [model, pattern] of Object.entries(identityByModel)) {
+    assert.match(run(model, ps2), pattern, `[${model}] referência PESSOA deve controlar apenas o rosto`);
+  }
+  console.log('  ✓ TEST 33.1: PESSOA controla só a identidade facial em OpenAI, Google e FLUX (sem copiar roupa, fundo ou luz).');
+
+  // 33.2 Named hardware gets a product-fidelity instruction in all four adapters.
+  for (const model of ['OPENAI_GPT_IMAGE_2_5_SUNBURST', 'GOOGLE_NANO_BANANA_2', 'MIDJOURNEY_V8_2', 'FLUX_2_PRO']) {
+    assert.match(run(model, ps2), /industrial geometry/i, `[${model}] PS2 deve receber trava de fidelidade de produto`);
+  }
+  console.log('  ✓ TEST 33.2: Hardware nomeado (PS2) recebe trava de geometria industrial nos 4 adaptadores.');
+
+  // 33.3 A PRODUTO reference donates geometry only, never its studio background.
+  const hsInput = { videoTitle: 'Unboxing', ideaDescription: 'Mostrando o novo headset gamer na mão.', references: [headset] };
+  assert.match(run('GOOGLE_NANO_BANANA_2', hsInput), /Image 1 \("Headset Pro X"\) controls exact industrial geometry.* only, not its studio background/);
+  assert.match(run('FLUX_2_PRO', hsInput), /matches Image 1 \("Headset Pro X"\) exactly.*placed in this scene's own setting/);
+  assert.match(run('OPENAI_GPT_IMAGE_2_5_SUNBURST', hsInput), /Product fidelity from product reference "Headset Pro X"/);
+  console.log('  ✓ TEST 33.3: Referência PRODUTO doa só geometria/materiais, nunca o fundo de estúdio.');
+
+  // 33.4 Object-only scenes get no human instructions that could invite an invented person.
+  const food = { videoTitle: 'A feijoada perfeita', ideaDescription: 'Um prato de feijoada fumegante visto de cima', references: [] };
+  for (const model of ['OPENAI_GPT_IMAGE_2_5_SUNBURST', 'GOOGLE_NANO_BANANA_2', 'MIDJOURNEY_V8_2', 'FLUX_2_PRO']) {
+    const positive = run(model, food).split(/^AVOID:/m)[0];
+    assert.ok(!/skin texture|human expression|finger count|facial asymmetry/i.test(positive), `[${model}] cena sem pessoa não pode pedir atributos humanos`);
+  }
+  console.log('  ✓ TEST 33.4: Cena só de objeto não recebe pele, expressão ou mãos em nenhum adaptador.');
+
+  delete process.env.COMPLEMENTARY_ENGINES_ENABLED;
+}
 console.log('\n✅ TODOS OS TESTES PASSARAM COM SUCESSO! VALIDAÇÃO CONCLUÍDA.');

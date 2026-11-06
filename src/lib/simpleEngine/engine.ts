@@ -1119,18 +1119,39 @@ export function resolveOutputMetadata(
  * CHANGE, ADAPT, PRESERVE, ENVIRONMENT, COMPOSITION, LIGHTING, AVOID.
  * Note: Aspect ratio resolutions and qualities are maintained in metadata, NOT hardcoded in prompt.
  */
+/**
+ * New-scene decisions the engine has already resolved (person present, which PESSOA
+ * references own the face, whether a product must keep its real geometry). Passed to
+ * every model adapter so each renders the same locks in its own idiom. When absent,
+ * adapters keep their previous behavior (edit tasks, legacy callers).
+ */
+export interface NewSceneSubject {
+  hasPerson: boolean;
+  identityRefs: SimpleReference[];
+  productLock: boolean;
+  productRefs: SimpleReference[];
+  productFacts: string[];
+}
+
+const refNameList = (refs: SimpleReference[]) => refs.map(r => `"${r.name}"`).join(', ');
+const refImageList = (all: SimpleReference[], refs: SimpleReference[]) =>
+  refs.map(r => `Image ${all.findIndex(x => x.id === r.id) + 1} ("${r.name}")`).join(', ');
+const factSentence = (facts: string[]) => (facts.length > 0 ? ` Grounded physical characteristics: ${facts.join('. ')}.` : '');
+
 export function buildOpenAIStructuredPrompt({
   plan,
   input,
   variant,
   typographyDirective,
-  arParam
+  arParam,
+  subject
 }: {
   plan: ScenePlan;
   input: CreateThumbnailInput;
   variant: 'SUNBURST' | 'FLARE';
   typographyDirective: string;
   arParam: string;
+  subject?: NewSceneSubject;
 }): string {
   const { videoTitle = '', ideaDescription = '', references = [], extraInstructions } = input;
   const cleanIdea = ideaDescription.trim() || videoTitle.trim();
@@ -1253,6 +1274,10 @@ export function buildOpenAIStructuredPrompt({
     adaptText = isSunburst
       ? `Subtle motivated environmental light bounce on shoulders and silhouette edges consistent with new setting light sources, physically grounding subject without artificial halos or green-screen cut-and-paste artifacts.`
       : `Subtle environmental light bounce on subject edges to physically ground in new environment without halos.`;
+  } else if (subject && !subject.hasPerson) {
+    adaptText = isSunburst
+      ? `Balanced optical falloff between subject and background with true relative scale between objects.`
+      : `Authentic optical depth and true relative scale.`;
   } else {
     adaptText = isSunburst
       ? `Anatomically plausible hands with natural grip, correct visible finger count according to pose and natural occlusion. Balanced optical falloff between subject and background.`
@@ -1273,6 +1298,27 @@ export function buildOpenAIStructuredPrompt({
     preserveText = isSunburst
       ? `1. Exact subject facial identity, true age, and composed facial expression.\n2. Subject body posture, clothing fabrics, and any held objects.\n3. Framing scale and camera distance from master photo.`
       : `1. Subject facial identity, expression, and posture.\n2. Clothing and held items.`;
+  } else if (subject) {
+    const lines: string[] = [];
+    if (subject.identityRefs.length > 0) {
+      lines.push(isSunburst
+        ? `Facial identity from person reference ${refNameList(subject.identityRefs)}: recognizable bone structure, eye shape, nose and mouth proportions, natural asymmetry, true age, hairline, and facial hair. Do not copy clothing, background, lighting, or pose from that photo.`
+        : `Facial identity from ${refNameList(subject.identityRefs)} (bone structure, eye shape, true age); not its clothing, background, or lighting.`);
+    }
+    if (subject.hasPerson) {
+      lines.push(isSunburst
+        ? `Natural human facial asymmetry, closed-mouth composed expression, and natural skin texture without plastic smoothing.`
+        : `Natural facial asymmetry, closed-mouth expression, and skin texture.`);
+    }
+    if (subject.productLock) {
+      const owner = subject.productRefs.length > 0 ? ` from product reference ${refNameList(subject.productRefs)}` : ' of the named product';
+      lines.push(isSunburst
+        ? `Product fidelity${owner}: authentic industrial geometry, true proportions and scale, real button, port, and logo placement, factory materials, and an instantly recognizable silhouette; never a generic or invented look-alike.${factSentence(subject.productFacts)}`
+        : `Product fidelity${owner}: real geometry, proportions, buttons, ports, and materials.${factSentence(subject.productFacts)}`);
+    }
+    lines.push(isSunburst ? `Authentic physical materials and tactile textures.` : `Physical materials and camera perspective.`);
+    if (isSunburst) lines.push(`Grounded real-world scale and camera perspective.`);
+    preserveText = lines.map((l, i) => `${i + 1}. ${l}`).join('\n');
   } else {
     preserveText = isSunburst
       ? `1. Natural human facial asymmetry, closed-mouth composed expression, and natural skin texture without plastic smoothing.\n2. Authentic physical materials and tactile textures.\n3. Grounded real-world scale and camera perspective.`
@@ -1353,6 +1399,7 @@ export interface GooglePromptOptions {
   variant: 'BANANA_2' | 'BANANA_PRO';
   typographyDirective: string;
   arParam: string;
+  subject?: NewSceneSubject;
 }
 
 /**
@@ -1370,7 +1417,8 @@ export function buildGooglePrompt({
   input,
   variant,
   typographyDirective,
-  arParam
+  arParam,
+  subject
 }: GooglePromptOptions): string {
   const cleanIdea = (input.ideaDescription || '').trim() || (input.videoTitle || '').trim();
   const refs = input.references || [];
@@ -1408,6 +1456,19 @@ export function buildGooglePrompt({
   } else if (plan.taskType === 'CHANGE_ENVIRONMENT') {
     attributeControl += `- Subject: Image ${targetIdx} ("${targetName}") controls subject identity, body posture, clothing, and props.\n`;
     attributeControl += `- Environment: Image ${envIdx} ("${envName}") controls background architecture, spatial perspective, and lighting atmosphere.\n`;
+  } else if (subject && (subject.identityRefs.length > 0 || subject.productLock)) {
+    if (subject.identityRefs.length > 0) {
+      attributeControl += `- Facial Identity: ${refImageList(refs, subject.identityRefs)} controls recognizable bone structure, eye shape, true age, hairline, and facial hair only. Clothing, background, lighting, and pose come from this scene, not from that photo.\n`;
+    }
+    if (subject.productLock) {
+      attributeControl += subject.productRefs.length > 0
+        ? `- Product: ${refImageList(refs, subject.productRefs)} controls exact industrial geometry, proportions, buttons, ports, and materials only, not its studio background.\n`
+        : `- Product: the named product keeps its real industrial geometry, proportions, button and port layout, and materials, never a generic look-alike.\n`;
+    }
+    const otherRefs = refs.filter(r => !subject.identityRefs.includes(r) && !subject.productRefs.includes(r));
+    if (otherRefs.length > 0) {
+      attributeControl += `- Other references: ${refImageList(refs, otherRefs)} control only the attributes of their assigned roles.\n`;
+    }
   } else {
     attributeControl += refs.length > 0
       ? `- Visual Elements: Controlled by provided references as primary visual anchors.\n`
@@ -1445,6 +1506,13 @@ export function buildGooglePrompt({
     whatRemains += `1. Exact subject facial identity, true age, and composed expression.\n`;
     whatRemains += `2. Subject body posture, clothing, and any held objects.\n`;
     whatRemains += `3. Framing scale and camera distance.`;
+  } else if (subject) {
+    const lines: string[] = [];
+    if (subject.hasPerson) lines.push('Composed human expression with closed mouth and natural skin texture without plastic smoothing.');
+    if (subject.productLock) lines.push(`Authentic product geometry, true proportions, and recognizable silhouette.${factSentence(subject.productFacts)}`);
+    lines.push('Grounded real-world scale and authentic physical materials.');
+    lines.push('Clean optical separation with generous negative space.');
+    whatRemains += lines.map((l, i) => `${i + 1}. ${l}`).join('\n');
   } else {
     whatRemains += `1. Composed human expression with closed mouth and natural skin texture without plastic smoothing.\n`;
     whatRemains += `2. Grounded real-world scale and authentic physical materials.\n`;
@@ -1486,6 +1554,7 @@ export interface MidjourneyPromptOptions {
   plan: ScenePlan;
   input: CreateThumbnailInput;
   variant: 'V8_2' | 'NIJI_7';
+  subject?: NewSceneSubject;
 }
 
 /**
@@ -1498,7 +1567,8 @@ export interface MidjourneyPromptOptions {
 export function buildMidjourneyPrompt({
   plan,
   input,
-  variant
+  variant,
+  subject
 }: MidjourneyPromptOptions): string {
   const cleanIdea = (input.ideaDescription || '').trim() || (input.videoTitle || '').trim();
   const arFlag = input.aspectRatio === '9:16' ? '--ar 9:16' : '--ar 16:9';
@@ -1522,6 +1592,16 @@ export function buildMidjourneyPrompt({
     visualText = `Photographic YouTube thumbnail, ${cleanIdea}, featuring the creator holding the physical hardware device from "${prodName}" with natural plausible hand grip, authentic chassis seams, ports, and buttons, natural composed facial expression, motivated lighting matching the scene, 35mm lens perspective, tactile matte materials`;
   } else if (plan.taskType === 'CHANGE_ENVIRONMENT') {
     visualText = `Photographic YouTube thumbnail, ${cleanIdea}, subject from "${targetName}" naturally integrated into the architectural setting of "${envName}", subtle motivated environmental light bounce on shoulders and silhouette edges, authentic spatial depth, 35mm perspective, clean negative space`;
+  } else if (subject) {
+    // Midjourney takes identity from image parameters (e.g. --oref), so only text-expressible locks go here.
+    const parts = [
+      `Photographic YouTube thumbnail, ${cleanIdea}`,
+      'compelling hero presentation with clean silhouette and immediate readability at 120px mobile thumbnail scale',
+    ];
+    if (subject.hasPerson) parts.push('natural composed human expression with closed mouth');
+    if (subject.productLock) parts.push('the real product with authentic industrial geometry, true proportions, and real buttons and ports');
+    parts.push('motivated directional physical key light with soft shadow falloff', '35mm lens perspective', 'authentic tactile textures', 'generous negative space');
+    visualText = parts.join(', ');
   } else {
     visualText = `Photographic YouTube thumbnail, ${cleanIdea}, compelling hero presentation with clean silhouette and immediate readability at 120px mobile thumbnail scale, natural composed human expression with closed mouth, motivated directional physical key light with soft shadow falloff, 35mm lens perspective, authentic tactile textures, generous negative space`;
   }
@@ -1550,6 +1630,7 @@ export interface FluxPromptOptions {
   variant: 'MAX' | 'PRO' | 'FLEX' | 'KLEIN';
   typographyDirective: string;
   arParam: string;
+  subject?: NewSceneSubject;
 }
 
 /**
@@ -1563,7 +1644,8 @@ export function buildFluxPrompt({
   input,
   variant,
   typographyDirective,
-  arParam
+  arParam,
+  subject
 }: FluxPromptOptions): string {
   const cleanIdea = (input.ideaDescription || '').trim() || (input.videoTitle || '').trim();
   const refs = input.references || [];
@@ -1594,16 +1676,34 @@ export function buildFluxPrompt({
     directDescription = `Preserve the subject from Image ${targetIdx} ("${targetName}") including exact facial identity, composed expression, clothing, and body posture. Integrate the authentic background architecture and spatial atmosphere from Image ${envIdx} ("${envName}") with matching directional light bounce.`;
   } else {
     directDescription = `Photographic YouTube thumbnail, ${cleanIdea}. Subject presented with bold silhouette and clear optical separation optimized for 120px mobile thumbnail scale. 35mm lens perspective preserving authentic spatial depth.`;
+    if (subject && subject.identityRefs.length > 0) {
+      directDescription += ` Use the person from ${refImageList(refs, subject.identityRefs)} for facial identity only: recognizable bone structure, eye shape, true age, and natural asymmetry, with clothing, background, and lighting defined by this scene.`;
+    }
+    if (subject?.productLock) {
+      directDescription += subject.productRefs.length > 0
+        ? ` The product matches ${refImageList(refs, subject.productRefs)} exactly: authentic industrial geometry, true proportions, real button and port layout, and factory materials, placed in this scene's own setting.${factSentence(subject.productFacts)}`
+        : ` The named product keeps its authentic industrial geometry, true proportions, real button and port layout, and instantly recognizable silhouette.${factSentence(subject.productFacts)}`;
+    }
   }
 
   const variantNote = variant === 'MAX' ? ' Maximum photographic detail and strict instruction following.' : '';
-  const positiveAttributes = `POSITIVE VISUAL ATTRIBUTES:
-- Natural skin texture with realistic pores, authentic tonal variation, and zero plastic smoothing.
-- Physically motivated illumination with clean directional key light and soft natural shadow falloff.
-- Restrained believable human expression appropriate to the scene with closed mouth.
-- Controlled optical separation with a readable background and generous negative space.
-- Anatomically plausible hands with natural grip and correct visible finger count according to pose.
-- 35mm digital camera perspective (${arParam}) with tactile physical materials.${variantNote}`;
+  // Human attributes only when a person is in the shot; otherwise they invite an invented person.
+  const humanLines = subject && !subject.hasPerson
+    ? []
+    : [
+        '- Natural skin texture with realistic pores, authentic tonal variation, and zero plastic smoothing.',
+        '- Restrained believable human expression appropriate to the scene with closed mouth.',
+        '- Anatomically plausible hands with natural grip and correct visible finger count according to pose.',
+      ];
+  const positiveAttributes = [
+    'POSITIVE VISUAL ATTRIBUTES:',
+    humanLines[0],
+    '- Physically motivated illumination with clean directional key light and soft natural shadow falloff.',
+    humanLines[1],
+    '- Controlled optical separation with a readable background and generous negative space.',
+    humanLines[2],
+    `- 35mm digital camera perspective (${arParam}) with tactile physical materials.${variantNote}`,
+  ].filter(Boolean).join('\n');
 
   let preservationConstraints = 'PRESERVATION CONSTRAINTS:\n';
   if (plan.taskType === 'IDENTITY_TRANSFER') {
@@ -1641,13 +1741,15 @@ export interface RenderPromptOptions {
   basePrompt: string;
   typographyDirective: string;
   arParam: string;
+  /** New-scene locks resolved by generateSimpleThumbnail; omitted for edit tasks. */
+  subject?: NewSceneSubject;
 }
 
 /**
  * Central prompt dispatcher that renders model-specific prompt formats.
  */
 export function renderPromptForTargetModel(options: RenderPromptOptions): string {
-  const { plan, input, basePrompt, typographyDirective, arParam } = options;
+  const { plan, input, basePrompt, typographyDirective, arParam, subject } = options;
   const normalizedModel = normalizeTargetModel(input.targetModel);
   const cfg = TARGET_MODEL_CONFIGS[normalizedModel];
 
@@ -1659,7 +1761,8 @@ export function renderPromptForTargetModel(options: RenderPromptOptions): string
         input,
         variant,
         typographyDirective,
-        arParam
+        arParam,
+        subject
       });
     }
 
@@ -1670,7 +1773,8 @@ export function renderPromptForTargetModel(options: RenderPromptOptions): string
         input,
         variant,
         typographyDirective,
-        arParam
+        arParam,
+        subject
       });
     }
 
@@ -1679,7 +1783,8 @@ export function renderPromptForTargetModel(options: RenderPromptOptions): string
       return buildMidjourneyPrompt({
         plan,
         input,
-        variant
+        variant,
+        subject
       });
     }
 
@@ -1693,7 +1798,8 @@ export function renderPromptForTargetModel(options: RenderPromptOptions): string
         input,
         variant,
         typographyDirective,
-        arParam
+        arParam,
+        subject
       });
     }
 
@@ -2562,13 +2668,25 @@ ENVIRONMENT & OPTICS: ${contextEn}. ${styleTreatment}${depthOfField}, tangible m
     typographyDirective = `Reserve clean, uncluttered negative space on the ${posStr} of the composition specifically for post-production typography ("${thumbnailText.trim()}"). Do not bake distorted AI typography directly into the pixels.`;
   }
 
+  // Same lock decisions as the GERAL PRESERVATION LOCKS above, handed to every model adapter.
+  const subject: NewSceneSubject = {
+    hasPerson,
+    identityRefs: hasPersonRef && hasPerson ? personRefs : [],
+    productLock: hasProductRef || isTech,
+    productRefs,
+    productFacts: (enrichedPlan.researchFacts || [])
+      .filter(f => f.category === 'PRODUCT_GEOMETRY' || f.category === 'CONTROL_LAYOUT' || f.category === 'SILHOUETTE')
+      .map(f => f.fact)
+  };
+
   // Model-specific adjustments rendered via central dispatcher
   let finalPrompt = renderPromptForTargetModel({
     plan: enrichedPlan,
     input,
     basePrompt: promptBody,
     typographyDirective,
-    arParam: aspectRatio === '9:16' ? '9:16 vertical format' : '16:9 widescreen format'
+    arParam: aspectRatio === '9:16' ? '9:16 vertical format' : '16:9 widescreen format',
+    subject
   });
 
   // Audit prompt through Provenance Guard to strip any unsupported defaults or leakage
