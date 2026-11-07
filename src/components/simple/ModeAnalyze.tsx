@@ -85,17 +85,22 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowCloudAi = fa
       } else {
         // Smaller re-encoded copy (no EXIF/GPS metadata) for the server and any AI provider.
         const uploadImage = await prepareImageForUpload(image);
-        const res = await fetch('/api/ai/simple-analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: uploadImage, videoTitle, metrics, allowCloudAi: true })
+        const local = (reason: string): AnalyzeThumbnailSimpleResult => ({
+          ...(metrics
+            ? { ...analyzeFromMetrics(metrics), analysisSource: 'local-pixels' as const }
+            : { ...analyzeThumbnailLocally(videoTitle), isLocal: true, analysisSource: 'title-only' as const }),
+          aiFallbackReason: reason
         });
-        if (res.ok) {
-          data = await res.json();
+        if (!uploadImage) {
+          // The browser could not re-encode it: never send the original (it may carry metadata).
+          data = local('unsupported-image');
         } else {
-          data = metrics
-            ? { ...analyzeFromMetrics(metrics), analysisSource: 'local-pixels' }
-            : { ...analyzeThumbnailLocally(videoTitle), isLocal: true, analysisSource: 'title-only' };
+          const res = await fetch('/api/ai/simple-analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: uploadImage, videoTitle, metrics, allowCloudAi: true })
+          });
+          data = res.ok ? await res.json() : local('server-error');
         }
       }
 
@@ -117,9 +122,12 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowCloudAi = fa
             : 'Análise genérica concluída (imagem não examinada).'
       );
     } catch {
-      const fallback: AnalyzeThumbnailSimpleResult = metrics
-        ? { ...analyzeFromMetrics(metrics), analysisSource: 'local-pixels' }
-        : { ...analyzeThumbnailLocally(videoTitle), isLocal: true, analysisSource: 'title-only' };
+      const fallback: AnalyzeThumbnailSimpleResult = {
+        ...(metrics
+          ? { ...analyzeFromMetrics(metrics), analysisSource: 'local-pixels' as const }
+          : { ...analyzeThumbnailLocally(videoTitle), isLocal: true, analysisSource: 'title-only' as const }),
+        ...(allowCloudAi ? { aiFallbackReason: 'network' } : {})
+      };
       setResult(fallback);
       onNotify(fallback.analysisSource === 'local-pixels' ? 'Análise local concluída (heurísticas de pixels, sem IA).' : 'Análise genérica concluída (imagem não examinada).');
     } finally {

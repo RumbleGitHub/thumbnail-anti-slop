@@ -59,7 +59,7 @@ export function ModeImprove({ onNotify, onRefreshHistoryCount, allowCloudAi = fa
       if (res.ok) {
         data = await res.json();
       } else {
-        data = improvePrompt({ rawPrompt, targetModel });
+        data = { ...improvePrompt({ rawPrompt, targetModel }), ...(allowCloudAi ? { aiFallbackReason: 'server-error' } : {}) };
       }
 
       setResult(data);
@@ -74,7 +74,7 @@ export function ModeImprove({ onNotify, onRefreshHistoryCount, allowCloudAi = fa
 
       onNotify('Slop removido com sucesso!');
     } catch {
-      const fallback = improvePrompt({ rawPrompt, targetModel });
+      const fallback: ImproveView = { ...improvePrompt({ rawPrompt, targetModel }), ...(allowCloudAi ? { aiFallbackReason: 'network' } : {}) };
       setResult(fallback);
       onNotify('Prompt purificado pelo motor local.');
     } finally {

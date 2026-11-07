@@ -372,14 +372,12 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowCloudAi = fal
         approachIndex: currentApproach
       };
 
-      // With free AI on, product/scene/target images go to the free vision model: send smaller,
-      // metadata-free copies. Face photos (PESSOA) are never analyzed by it.
+      // The prompt engine only needs each reference's role and name, never its pixels.
+      // Cloud AI off: no image leaves the browser. On: only smaller, metadata-free (EXIF-stripped)
+      // copies are sent; the server withholds PESSOA photos from free models.
       const apiReferences = allowCloudAi
-        ? await Promise.all(references.map(async r =>
-            r.role === 'PRODUTO' || r.role === 'CENÁRIO' || r.role === 'IMAGEM_ALVO'
-              ? { ...r, url: await prepareImageForUpload(r.url) }
-              : r))
-        : references;
+        ? await Promise.all(references.map(async r => ({ ...r, url: await prepareImageForUpload(r.url) })))
+        : references.map(r => ({ ...r, url: '' }));
       const res = await fetch('/api/ai/simple-create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -401,7 +399,10 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowCloudAi = fal
           aiAssist: data.aiAssist
         };
       } else {
-        genResult = generateSimpleThumbnail(payload);
+        genResult = {
+          ...generateSimpleThumbnail(payload),
+          ...(allowCloudAi ? { aiAssist: { provider: 'none' as const, fallbackReason: 'server-error' } } : {})
+        };
       }
 
       scrollToResultRef.current = true;
@@ -436,7 +437,7 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowCloudAi = fal
         approachIndex: currentApproach
       });
       scrollToResultRef.current = true;
-      setResult(fallback);
+      setResult(allowCloudAi ? { ...fallback, aiAssist: { provider: 'none', fallbackReason: 'network' } } : fallback);
       onNotify('Prompt gerado pelo motor local anti-slop.');
     } finally {
       inFlightRef.current = false;
@@ -1061,7 +1062,9 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowCloudAi = fal
                           : ` · IA na nuvem não conferiu as referências${result.aiAssist.fallbackReason ? ` (${describeAiFallback(result.aiAssist.fallbackReason)})` : ''}.`
                         : result.aiAssist?.provider === 'openai' || result.aiAssist?.provider === 'gemini'
                           ? ' · referências analisadas pela IA configurada no servidor.'
-                          : ' (sem IA).'}
+                          : result.aiAssist?.fallbackReason
+                            ? ` (sem IA: ${describeAiFallback(result.aiAssist.fallbackReason)}).`
+                            : ' (sem IA).'}
                     </p>
                   </div>
 

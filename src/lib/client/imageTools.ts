@@ -36,6 +36,7 @@ export async function measureImage(dataUrl: string): Promise<ImageMetrics | null
 /**
  * Re-encodes an image for upload: max side `maxSide`, JPEG. Re-encoding through a canvas drops
  * EXIF/GPS metadata and keeps requests small (fewer tokens for free vision models).
+ * Returns '' when the image cannot be re-encoded: the original (with its metadata) is never sent.
  */
 export async function prepareImageForUpload(dataUrl: string, maxSide = 768): Promise<string> {
   try {
@@ -45,10 +46,10 @@ export async function prepareImageForUpload(dataUrl: string, maxSide = 768): Pro
     canvas.width = Math.round(img.naturalWidth * scale);
     canvas.height = Math.round(img.naturalHeight * scale);
     const ctx = canvas.getContext('2d');
-    if (!ctx) return dataUrl;
+    if (!ctx) return '';
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     return canvas.toDataURL('image/jpeg', 0.85);
   } catch {
-    return dataUrl;
+    return '';
   }
 }
