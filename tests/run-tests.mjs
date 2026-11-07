@@ -399,7 +399,7 @@ console.log('\n14. Testando Ausência de Viés Cinematográfico, Abertura Força
   });
 
   assert.ok(!resMJ.finalPrompt.includes('--v 6'), 'Prompt Midjourney NÃO deve fixar versão volátil como --v 6.1');
-  assert.ok(!resMJ.finalPrompt.includes('--style raw'), 'Prompt Midjourney padrão NÃO deve forçar --style raw');
+  assert.ok(!/--(?:style )?raw\b/.test(resMJ.finalPrompt), 'Prompt Midjourney padrão NÃO deve forçar --style raw');
   assert.ok(resMJ.finalPrompt.includes('--v 8.2'), 'Prompt Midjourney DEVE incluir versão atual --v 8.2');
   assert.ok(resMJ.finalPrompt.includes('--ar 16:9'), 'Prompt Midjourney DEVE incluir proporção --ar 16:9');
 
@@ -416,7 +416,7 @@ console.log('\n14. Testando Ausência de Viés Cinematográfico, Abertura Força
     preserveProduct: false,
     extraInstructions: 'usar --style raw'
   });
-  assert.ok(resMJExplicitRaw.finalPrompt.includes('--style raw'), 'Prompt Midjourney com pedido explícito em extraInstructions deve conter --style raw');
+  assert.ok(resMJExplicitRaw.finalPrompt.includes('--raw'), 'Prompt Midjourney com pedido explícito em extraInstructions deve conter --raw (sintaxe atual da doc oficial)');
   assert.ok(resMJExplicitRaw.finalPrompt.includes('--v 8.2'), 'Prompt Midjourney com pedido explícito deve manter --v 8.2');
 
   // Test Midjourney target model flags: Cinematográfico / Estilizado -> NÃO deve forçar --style raw (Regra 2)
@@ -431,7 +431,7 @@ console.log('\n14. Testando Ausência de Viés Cinematográfico, Abertura Força
     preserveFace: false,
     preserveProduct: false
   });
-  assert.ok(!resMJStylized.finalPrompt.includes('--style raw'), 'Prompt Midjourney cinematográfico/estilizado NÃO deve forçar --style raw');
+  assert.ok(!/--(?:style )?raw\b/.test(resMJStylized.finalPrompt), 'Prompt Midjourney cinematográfico/estilizado NÃO deve forçar --style raw');
   assert.ok(resMJStylized.finalPrompt.includes('--ar 16:9'), 'Prompt Midjourney estilizado DEVE manter proporção --ar 16:9');
   console.log('  ✓ Parâmetros Midjourney validados (--style raw não forçado por padrão; permitido apenas sob pedido explícito).');
 
@@ -1625,7 +1625,7 @@ console.log('\n24. Testando Modernização de Modelos Alvo 2026: Google Nano Ban
   assert.ok(mjPrompt.includes('--v 8.2'), 'Midjourney V8.2 deve conter --v 8.2');
   assert.ok(!mjPrompt.includes('--v 6'), 'Midjourney V8.2 NÃO deve conter --v 6');
   assert.ok(!mjPrompt.includes('--v 7'), 'Midjourney V8.2 NÃO deve conter --v 7');
-  assert.ok(!mjPrompt.includes('--style raw'), 'Midjourney V8.2 padrão NÃO deve conter --style raw');
+  assert.ok(!/--(?:style )?raw\b/.test(mjPrompt), 'Midjourney V8.2 padrão NÃO deve conter --style raw');
   assert.equal(mjV8Result.outputMetadata?.modelId, 'v8.2');
 
   const mjV8WithRaw = generateSimpleThumbnail({
@@ -1633,7 +1633,7 @@ console.log('\n24. Testando Modernização de Modelos Alvo 2026: Google Nano Ban
     targetModel: 'MIDJOURNEY_V8_2',
     extraInstructions: 'usar --style raw'
   });
-  assert.ok(mjV8WithRaw.finalPrompt.includes('--style raw'), 'Midjourney V8.2 com pedido explícito em extraInstructions deve conter --style raw');
+  assert.ok(mjV8WithRaw.finalPrompt.includes('--raw'), 'Midjourney V8.2 com pedido explícito em extraInstructions deve conter --raw (sintaxe atual da doc oficial)');
   assert.ok(mjV8WithRaw.finalPrompt.includes('--v 8.2'), 'Midjourney V8.2 com pedido explícito deve conter --v 8.2');
 
   const mjNijiResult = generateSimpleThumbnail({
@@ -1646,7 +1646,7 @@ console.log('\n24. Testando Modernização de Modelos Alvo 2026: Google Nano Ban
     realismLevel: 'Alto'
   });
   assert.ok(mjNijiResult.finalPrompt.includes('--niji 7'), 'Midjourney Niji 7 deve conter --niji 7');
-  assert.ok(!mjNijiResult.finalPrompt.includes('--style raw'), 'Midjourney Niji 7 NUNCA deve incluir --style raw');
+  assert.ok(!/--(?:style )?raw\b/.test(mjNijiResult.finalPrompt), 'Midjourney Niji 7 NUNCA deve incluir --style raw');
   assert.equal(mjNijiResult.outputMetadata?.modelId, 'niji-7');
   console.log('  ✓ TEST 24.4: Midjourney V8.2 (--v 8.2) e Niji 7 (--niji 7) validados com prompt visual conciso, sem versões obsoletas e sem --style raw por padrão.');
 
@@ -2836,5 +2836,147 @@ console.log('\n35. Testando Spatial Hierarchy Planner sem pessoa inventada...');
   assert.equal(requestIncludesPerson({ videoTitle: 'Review', ideaDescription: 'o teclado', references: [{ id: 'p', name: 'Eu', role: 'PESSOA', url: 'x' }] }), true);
   assert.equal(requestIncludesPerson({ videoTitle: 'Visitei o museu', ideaDescription: 'Fachada do museu ao entardecer', references: [] }), false, '"museu"/"meu" não contém a palavra "eu"');
   console.log('  ✓ TEST 35.2: Com pessoa (texto ou PESSOA) a hierarquia Criador > Objeto continua igual; "museu" não vira pessoa.');
+}
+
+const CYCLE6_BASE = { thumbnailText: '', aspectRatio: '16:9', stylePreset: 'Natural', realismLevel: 'Alto', preserveFace: false, preserveProduct: false, textTreatment: 'AUTO', references: [] };
+const cycle6Ref = (id, role, extra = {}) => ({ id, name: id, url: `https://example.com/${id}.jpg`, role, ...extra });
+
+// 36. Midjourney: referências e texto conforme docs.midjourney.com (V8.2 Edit Model, Niji 7 Image Prompts)
+console.log('\n36. Testando Midjourney conforme a documentação oficial (referências, texto, --raw, --no)...');
+{
+  const { generateSimpleThumbnail } = await import('../src/lib/simpleEngine/engine.ts');
+  const refs = [cycle6Ref('minha-foto', 'PESSOA'), cycle6Ref('headset-pro-x', 'PRODUTO')];
+  const v8 = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: 'MIDJOURNEY_V8_2', videoTitle: 'Unboxing', ideaDescription: 'Eu mostrando o headset na mão', references: refs });
+  // 36.1 No file names (Midjourney cannot read them) and no V7-only parameters.
+  assert.ok(!v8.finalPrompt.includes('minha-foto') && !v8.finalPrompt.includes('headset-pro-x'), 'Prompt MJ não deve conter nomes de arquivo');
+  assert.ok(!/--oref|--ow\b|--cref|--cw\b/.test(v8.finalPrompt), 'V8.2 não usa --oref/--cref (só V7; substituídos pelo Edit Model)');
+  assert.match(v8.finalPrompt, /attached face photo/);
+  assert.match(v8.finalPrompt, /attached product photo/);
+  const notes = (v8.modelNotes || []).join('\n');
+  assert.match(notes, /Attach to prompt/);
+  assert.ok(notes.indexOf('minha-foto') < notes.indexOf('headset-pro-x'), 'Ordem de anexo: rosto antes do produto');
+  console.log('  ✓ TEST 36.1: V8.2 descreve "attached ... photo", sem nomes de arquivo nem --oref/--cref; notas dizem o que anexar e em que ordem.');
+
+  // 36.2 More than 4 references, style references and Niji 7.
+  const many = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: 'MIDJOURNEY_V8_2', videoTitle: 'Setup', ideaDescription: 'Eu no meu setup', references: [
+    cycle6Ref('a', 'PESSOA'), cycle6Ref('b', 'PRODUTO'), cycle6Ref('c', 'CENÁRIO'), cycle6Ref('d', 'COMPOSIÇÃO'), cycle6Ref('e', 'OUTRA'), cycle6Ref('estilo-x', 'ESTILO')
+  ] });
+  const manyNotes = (many.modelNotes || []).join('\n');
+  assert.match(manyNotes, /Só 4 imagens cabem/);
+  assert.match(manyNotes, /estilo-x na seção "Style Reference"/);
+  const niji = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: 'MIDJOURNEY_NIJI_7', videoTitle: 'Unboxing', ideaDescription: 'Eu mostrando o headset', references: refs });
+  assert.match((niji.modelNotes || []).join('\n'), /Niji 7 não tem o Edit Model/);
+  assert.ok(!niji.finalPrompt.includes('attached'), 'Niji 7 não tem anexos do Edit Model');
+  console.log('  ✓ TEST 36.2: Limite de 4 anexos, Style Reference separado e Niji 7 tratado como Image Prompt.');
+
+  // 36.3 Exact overlay text in double quotes, kept verbatim, with the limitation explained.
+  const withText = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: 'MIDJOURNEY_V8_2', videoTitle: 'Nunca compre isso', ideaDescription: 'Eu com cara de desconfiança', thumbnailText: 'NÃO COMPRE', references: [cycle6Ref('minha-foto', 'PESSOA')] });
+  assert.ok(withText.finalPrompt.includes('"NÃO COMPRE"'), 'Texto exato entre aspas duplas, sem tradução');
+  assert.match((withText.modelNotes || []).join('\n'), /acentos/);
+  const noText = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: 'MIDJOURNEY_V8_2', videoTitle: 'Nunca compre isso', ideaDescription: 'Eu', thumbnailText: 'NÃO COMPRE', textTreatment: 'SEM_TEXTO' });
+  assert.ok(!noText.finalPrompt.includes('NÃO COMPRE'), 'SEM_TEXTO não escreve o texto');
+  console.log('  ✓ TEST 36.3: Texto exato entre aspas duplas (V6+), limitação de acentos explicada; SEM_TEXTO respeitado.');
+
+  // 36.4 --raw only on request; creator exclusions as single-word --no.
+  const raw = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: 'MIDJOURNEY_V8_2', videoTitle: 'Teste', ideaDescription: 'Um teclado', extraInstructions: 'modo raw' });
+  assert.match(raw.finalPrompt, /--raw --v 8\.2$/);
+  const excl = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: 'MIDJOURNEY_V8_2', videoTitle: 'Teste', ideaDescription: 'Um teclado na mesa, sem neon e sem setas vermelhas' });
+  assert.match(excl.finalPrompt, /--no neon, arrows --v 8\.2$/);
+  assert.ok(!/sem neon|setas/i.test(excl.finalPrompt.split('\n')[0]), 'Exclusões fora do texto visual');
+  console.log('  ✓ TEST 36.4: --raw só quando pedido; exclusões viram --no com palavras únicas.');
+}
+
+// 37. Capas de jogos: arte real quando nomeadas, genéricas quando não
+console.log('\n37. Testando fidelidade de capas de jogos (PS2)...');
+{
+  const { generateSimpleThumbnail, buildScenePlan, resolveThemeContext, planSpatialHierarchy } = await import('../src/lib/simpleEngine/engine.ts');
+  const MODELS = ['GERAL', 'OPENAI_GPT_IMAGE_2_5_SUNBURST', 'GOOGLE_NANO_BANANA_2', 'MIDJOURNEY_V8_2', 'FLUX_2_PRO'];
+  const named = { ...CYCLE6_BASE, videoTitle: 'Os 10 melhores jogos de PS2', ideaDescription: 'Eu segurando o PS2 com as capas de GTA San Andreas e God of War reconhecíveis do lado', references: [cycle6Ref('minha-foto', 'PESSOA')] };
+  const unnamed = { ...CYCLE6_BASE, videoTitle: 'Minha coleção de PS2', ideaDescription: 'Eu segurando um PS2 com várias capas de jogos ao lado', references: [cycle6Ref('minha-foto', 'PESSOA')] };
+  for (const targetModel of MODELS) {
+    const a = generateSimpleThumbnail({ ...named, targetModel });
+    assert.match(a.finalPrompt, /real published (?:game )?cover/i, `[${targetModel}] capas nomeadas = arte real publicada`);
+    assert.ok(a.finalPrompt.includes('GTA San Andreas') && a.finalPrompt.includes('God of War'), `[${targetModel}] títulos preservados`);
+    assert.ok(!/Do not generate any text, letters, logos/.test(a.finalPrompt), `[${targetModel}] não proíbe os títulos impressos nas capas`);
+    assert.match((a.modelNotes || []).join(' '), /Para capas autênticas, adicione fotos das capas/);
+    const b = generateSimpleThumbnail({ ...unnamed, targetModel });
+    assert.match(b.finalPrompt, /unbranded|without invented|do not invent/i, `[${targetModel}] capas não nomeadas ficam genéricas`);
+    assert.ok(!/iconic hero game covers|recognizable hero game covers/i.test(b.finalPrompt), `[${targetModel}] não promete capas "icônicas" inventadas`);
+  }
+  // Covers supplied as PRODUTO references are the authority: no "generic cases" instruction.
+  const withCoverRefs = generateSimpleThumbnail({ ...unnamed, targetModel: 'OPENAI_GPT_IMAGE_2_5_SUNBURST', references: [cycle6Ref('minha-foto', 'PESSOA'), cycle6Ref('capa-gta', 'PRODUTO')] });
+  assert.ok(withCoverRefs.finalPrompt.includes('"capa-gta"') && !/keep the cases generic/i.test(withCoverRefs.finalPrompt), 'Foto da capa (PRODUTO) é a autoridade');
+  // Planner: no invented store shelves when the creator did not ask for them.
+  const sp = (input) => { const base = buildScenePlan(input); return planSpatialHierarchy(input, base, resolveThemeContext(input, base)); };
+  assert.ok(!/shel|store/i.test(sp(named).compositionDirective), 'Sem prateleiras/loja inventadas');
+  assert.match(sp(named).compositionDirective, /GTA San Andreas, God of War/);
+  assert.match(sp({ ...named, ideaDescription: 'Eu na loja com prateleiras de jogos de PS2' }).compositionDirective, /shelves/);
+  console.log('  ✓ TEST 37.1: Capas nomeadas = arte real (5 adaptadores), não nomeadas = genéricas, foto da capa manda; planner sem prateleiras inventadas.');
+}
+
+// 38. Linguagem técnica: exclusões e pedidos "meta" fora da cena
+console.log('\n38. Testando separação de cena, exclusões e pedidos sobre a imagem...');
+{
+  const { parseCreatorIdea, generateSimpleThumbnail, resolveSceneDescription } = await import('../src/lib/simpleEngine/engine.ts');
+  const cases = [
+    ['Eu segurando um controle, bem chamativo, sem neon e sem cara de IA', 'Eu segurando um controle', ['neon lighting', 'synthetic AI-generated look']],
+    ['Mostrando o Legion Go ligado, sem neon ou exageros.', 'Mostrando o Legion Go ligado.', ['neon lighting', 'exaggerated effects']],
+    ['Eu sem camisa na praia, sem setas vermelhas, viral', 'Eu sem camisa na praia', ['arrows']],
+    ['Um prato de feijoada fumegante visto de cima, sem fumaça exagerada', 'Um prato de feijoada fumegante visto de cima, sem fumaça exagerada', []],
+    ['Quero algo sem cara de IA e sem fundo branco', 'Quero algo sem fundo branco', ['synthetic AI-generated look']],
+  ];
+  for (const [idea, scene, exclusions] of cases) {
+    const p = parseCreatorIdea(idea);
+    assert.equal(p.scene, scene, `cena de "${idea}"`);
+    assert.deepEqual(p.exclusionsEn, exclusions, `exclusões de "${idea}"`);
+  }
+  console.log('  ✓ TEST 38.1: Exclusões conhecidas e palavras "meta" saem da cena; "sem camisa"/"sem fumaça" (conteúdo) ficam.');
+
+  // 38.2 "sem neon" no longer disables the neon avoid term, and reaches every adapter as an exclusion.
+  const input = { ...CYCLE6_BASE, videoTitle: 'Joguei 100 horas', ideaDescription: 'Eu segurando um controle de PS5, bem chamativo, sem neon', references: [cycle6Ref('minha-foto', 'PESSOA')] };
+  const geral = generateSimpleThumbnail({ ...input, targetModel: 'GERAL' }).finalPrompt;
+  assert.ok(!/sem neon|chamativ/i.test(geral.split('NEGATIVE / STRICTLY AVOID')[0]), 'GERAL: cena sem "sem neon"/"chamativo"');
+  assert.match(geral.split('NEGATIVE / STRICTLY AVOID')[1], /neon lighting/);
+  assert.match(generateSimpleThumbnail({ ...input, targetModel: 'OPENAI_GPT_IMAGE_2_5_SUNBURST' }).finalPrompt, /AVOID:\nneon lighting,/);
+  assert.match(generateSimpleThumbnail({ ...input, targetModel: 'GOOGLE_NANO_BANANA_2' }).finalPrompt, /Excluded by the creator: no neon lighting\./);
+  assert.match(generateSimpleThumbnail({ ...input, targetModel: 'FLUX_2_PRO' }).finalPrompt, /Zero neon lighting\./);
+  assert.match(geral, /PS5 controller/, '"controle de PS5" é o controle, não o console');
+  console.log('  ✓ TEST 38.2: Exclusões chegam ao AVOID/constraints de cada adaptador; "controle de PS5" vira "PS5 controller".');
+
+  // 38.3 Proper nouns, exact text and title fallback untouched.
+  assert.equal(resolveSceneDescription({ videoTitle: 'Testei o ROG Ally X', ideaDescription: 'sem neon' }), 'Testei o ROG Ally X', 'Só exclusões: cai para o título');
+  const textOut = generateSimpleThumbnail({ ...input, targetModel: 'GERAL', thumbnailText: 'Sem Neon, Só Jogo!' }).finalPrompt;
+  assert.ok(textOut.includes('"Sem Neon, Só Jogo!"'), 'Texto exato da thumbnail nunca é alterado');
+  console.log('  ✓ TEST 38.3: Nomes próprios e texto exato intactos; ideia só com exclusões usa o título.');
+}
+
+// 39. Comparações com vários produtos nomeados
+console.log('\n39. Testando comparações com 2+ produtos no Spatial Hierarchy Planner e nos adaptadores...');
+{
+  const { extractNamedProducts, buildScenePlan, resolveThemeContext, planSpatialHierarchy, generateSimpleThumbnail } = await import('../src/lib/simpleEngine/engine.ts');
+  const sp = (input) => { const base = buildScenePlan(input); return planSpatialHierarchy(input, base, resolveThemeContext(input, base)); };
+
+  assert.deepEqual(extractNamedProducts('iPhone 17 Pro vs Galaxy S26 Ultra', 'Os dois celulares lado a lado'), ['iPhone 17 Pro', 'Galaxy S26 Ultra']);
+  assert.deepEqual(extractNamedProducts('Colecionando PS2 em 2026', 'Eu segurando um PlayStation 2 com jogos de PS2'), ['PlayStation 2'], 'Aliases contam uma vez');
+  assert.deepEqual(extractNamedProducts('Galaxy S26 Ultra review', 'o S26 na mão'), ['Galaxy S26 Ultra'], 'Nome mais específico vence');
+  assert.deepEqual(extractNamedProducts('PS5 vs Xbox Series X', 'os dois consoles e o controle do PS5'), ['PS5', 'Xbox Series X']);
+  console.log('  ✓ TEST 39.1: Extração de produtos: comparação, aliases e nome mais específico.');
+
+  const two = sp({ ...CYCLE6_BASE, videoTitle: 'iPhone 17 Pro vs Galaxy S26 Ultra', ideaDescription: 'Os dois celulares lado a lado', targetModel: 'GERAL' });
+  assert.match(two.compositionDirective, /iPhone 17 Pro and Galaxy S26 Ultra side by side as distinct, equally prominent hero products/);
+  assert.ok(!/Smartphone/.test(two.compositionDirective), 'Não reduz a um "Smartphone" genérico');
+  const three = sp({ ...CYCLE6_BASE, videoTitle: 'Qual console comprar em 2026?', ideaDescription: 'Eu no centro com um PS5, um Xbox Series X e um Switch 2, com o PS5 em destaque', references: [cycle6Ref('minha-foto', 'PESSOA')], targetModel: 'GERAL' });
+  assert.match(three.compositionDirective, /PS5 as the largest hero product with Xbox Series X and Switch 2 clearly recognizable beside it/);
+  // Single product: unchanged behavior.
+  const single = sp({ ...CYCLE6_BASE, videoTitle: 'Review do meu celular', ideaDescription: 'Só o celular na mesa', targetModel: 'GERAL' });
+  assert.match(single.compositionDirective, /Smartphone positioned large in the immediate foreground/);
+  console.log('  ✓ TEST 39.2: Planner mantém 2-3 produtos nomeados e o destaque pedido; produto único inalterado.');
+
+  for (const targetModel of ['GERAL', 'OPENAI_GPT_IMAGE_2_5_SUNBURST', 'GOOGLE_NANO_BANANA_2', 'MIDJOURNEY_V8_2', 'FLUX_2_PRO']) {
+    const prompt = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel, videoTitle: 'iPhone 17 Pro vs Galaxy S26 Ultra', ideaDescription: 'Os dois celulares lado a lado' }).finalPrompt;
+    assert.ok(!/of the named product:/.test(prompt), `[${targetModel}] trava de produto não fica no singular genérico`);
+    assert.match(prompt, /distinct, correctly identified/, `[${targetModel}] produtos distintos, nunca fundidos`);
+  }
+  console.log('  ✓ TEST 39.3: Os 5 adaptadores tratam os dois produtos como distintos e identificados.');
 }
 console.log('\n✅ TODOS OS TESTES PASSARAM COM SUCESSO! VALIDAÇÃO CONCLUÍDA.');

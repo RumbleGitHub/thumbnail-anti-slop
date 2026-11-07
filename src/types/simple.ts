@@ -762,6 +762,8 @@ export interface CreateThumbnailResult {
   scenePlan?: ScenePlan;
   outputMetadata?: ImageOutputMetadata;
   targetModel?: TargetModel;
+  /** How to use the prompt with the chosen model (attach references, text limits); never part of the prompt. */
+  modelNotes?: string[];
 }
 
 export interface ImprovePromptInput {

@@ -159,6 +159,7 @@ export async function POST(req: NextRequest) {
       },
       outputMetadata: engineResult.outputMetadata,
       targetModel: engineResult.targetModel,
+      modelNotes: engineResult.modelNotes,
       // Development debug data (Section 31 & Complementary Trace)
       ...(process.env.NODE_ENV !== 'production' || req.headers.get('x-debug-trace') === 'true'
         ? {

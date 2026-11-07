@@ -384,7 +384,8 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount }: ModeCreateProps)
           approachTitle: data.approachTitle || 'Direção Visual Gerada',
           approachIndex: currentApproach,
           typographyPlan: data.typographyPlan,
-          outputMetadata: data.outputMetadata
+          outputMetadata: data.outputMetadata,
+          modelNotes: data.modelNotes
         };
       } else {
         genResult = generateSimpleThumbnail(payload);
@@ -1054,6 +1055,20 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount }: ModeCreateProps)
                 <div className="max-h-[28rem] select-all overflow-y-auto whitespace-pre-wrap rounded-lg border border-zinc-800/80 bg-zinc-950 p-4 font-mono text-xs leading-relaxed text-zinc-200 sm:p-5">
                   {result.finalPrompt}
                 </div>
+
+                {result.modelNotes && result.modelNotes.length > 0 && (
+                  <div className="space-y-2 rounded-lg border border-zinc-800 p-4">
+                    <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-300">
+                      <Info className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
+                      Antes de gerar (não faz parte do prompt)
+                    </span>
+                    <ul className="list-disc space-y-1.5 pl-5 text-sm leading-relaxed text-zinc-400">
+                      {result.modelNotes.map(note => (
+                        <li key={note}>{note}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             </div>
           </div>
