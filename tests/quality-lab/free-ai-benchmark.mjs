@@ -52,7 +52,7 @@ for (const [model, cases] of Object.entries(fx.vision)) {
       if (!/^none\.?$/i.test((a.ARTIFICIAL || '').trim())) invented++;
     }
     wai.setWorkersAiBindingForTests(replay(out.answer));
-    if (await free.analyzeWithFreeVision('data:image/jpeg;base64,AAAA', null)) parsed++;
+    if (!free.isFreeAiFailure(await free.analyzeWithFreeVision('data:image/jpeg;base64,AAAA', null))) parsed++;
     ms.push(out.ms); neurons.push(out.neurons);
   }
   visionSummary[model] = { subj, textOk, textCases, invented, real, parsed, ms: avg(ms), neurons: avg(neurons) };
@@ -72,7 +72,7 @@ for (const [model, outs] of Object.entries(fx.improve)) {
     if (/"changes"\s*:\s*\[\s*"(Removid|Substitu|Mantid)/.test(raw)) pt++;
     wai.setWorkersAiBindingForTests(replay(raw));
     const res = await free.improveWithFreeText({ rawPrompt: c.raw, targetModel: 'GERAL' });
-    if (!res) continue;
+    if (free.isFreeAiFailure(res)) continue; // rejected by a guard: falls back to the engine
     accepted++;
     if (c.exactText) { textCases++; if (res.improvedPrompt.includes(c.exactText)) textKept++; }
     const positive = positiveOnly(res.improvedPrompt);

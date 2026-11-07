@@ -16,26 +16,25 @@ import { AnalyzeThumbnailSimpleResult } from '@/types/simple';
 import { analyzeThumbnailLocally } from '@/lib/simpleEngine/engine';
 import { analyzeFromMetrics } from '@/lib/simpleEngine/pixelAnalysis';
 import { measureImage, prepareImageForUpload } from '@/lib/client/imageTools';
+import { describeAiFallback } from '@/lib/ai/free/reasons';
 import { saveSimpleHistoryItem } from '@/lib/simpleEngine/history';
 import { focusRing, fieldLabel, subLabel, fieldSurface, smallField, panelSurface, secondaryButton, secondaryIdle } from './ui';
 
 interface ModeAnalyzeProps {
   onNotify: (msg: string) => void;
   onRefreshHistoryCount: () => void;
-  /** Free hosted vision is available on the server and the creator has not turned it off. */
-  allowFreeAi?: boolean;
-  /** An owner-paid vision provider is configured on the server. */
-  paidVision?: boolean;
+  /** The creator turned "IA na nuvem" on and the server offers it (free Workers AI or a paid key). */
+  allowCloudAi?: boolean;
 }
 
 const SOURCE_LABEL: Record<NonNullable<AnalyzeThumbnailSimpleResult['analysisSource']>, string> = {
-  provider: 'Analisada pela IA configurada no servidor.',
-  'workers-ai': 'Analisada por IA gratuita (Cloudflare Workers AI, sem retenção) + medições locais da imagem.',
-  'local-pixels': 'Medições locais da imagem (contraste, exposição, cor, poluição visual, foco). Sem IA; nada foi enviado.',
-  'title-only': '',
+  provider: 'Fonte: IA na nuvem configurada no servidor (a imagem foi enviada).',
+  'workers-ai': 'Fonte: IA na nuvem gratuita (Cloudflare Workers AI · Llama 4 Scout, sem retenção) + heurísticas de pixels medidas no navegador. Built with Llama.',
+  'local-pixels': 'Fonte: heurísticas de pixels no navegador (contraste, exposição, saturação, neon, bordas e foco). Não reconhece pessoas, objetos nem texto; nada foi enviado.',
+  'title-only': 'Fonte: lista genérica do motor determinístico (a imagem não foi examinada).',
 };
 
-export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowFreeAi = false, paidVision = false }: ModeAnalyzeProps) {
+export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowCloudAi = false }: ModeAnalyzeProps) {
   const [image, setImage] = useState<string | null>(null);
   const [videoTitle, setVideoTitle] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -78,8 +77,8 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowFreeAi = fal
     try {
       let data: AnalyzeThumbnailSimpleResult;
 
-      if (!allowFreeAi && !paidVision) {
-        // Nothing to gain from uploading: analyze entirely in the browser.
+      if (!allowCloudAi) {
+        // Cloud AI off: analyze entirely in the browser; no request is made at all.
         data = metrics
           ? { ...analyzeFromMetrics(metrics), analysisSource: 'local-pixels' }
           : { ...analyzeThumbnailLocally(videoTitle), isLocal: true, analysisSource: 'title-only' };
@@ -89,7 +88,7 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowFreeAi = fal
         const res = await fetch('/api/ai/simple-analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: uploadImage, videoTitle, metrics, allowFreeAi })
+          body: JSON.stringify({ image: uploadImage, videoTitle, metrics, allowCloudAi: true })
         });
         if (res.ok) {
           data = await res.json();
@@ -114,7 +113,7 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowFreeAi = fal
         data.analysisSource === 'workers-ai' || data.analysisSource === 'provider'
           ? 'Auditoria visual concluída!'
           : data.analysisSource === 'local-pixels'
-            ? 'Análise local concluída (medições da imagem, sem IA).'
+            ? 'Análise local concluída (heurísticas de pixels, sem IA).'
             : 'Análise genérica concluída (imagem não examinada).'
       );
     } catch {
@@ -122,7 +121,7 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowFreeAi = fal
         ? { ...analyzeFromMetrics(metrics), analysisSource: 'local-pixels' }
         : { ...analyzeThumbnailLocally(videoTitle), isLocal: true, analysisSource: 'title-only' };
       setResult(fallback);
-      onNotify(fallback.analysisSource === 'local-pixels' ? 'Análise local concluída (medições da imagem, sem IA).' : 'Análise genérica concluída (imagem não examinada).');
+      onNotify(fallback.analysisSource === 'local-pixels' ? 'Análise local concluída (heurísticas de pixels, sem IA).' : 'Análise genérica concluída (imagem não examinada).');
     } finally {
       inFlightRef.current = false;
       setIsLoading(false);
@@ -248,8 +247,11 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowFreeAi = fal
 
             {result && (
               <div className="space-y-4">
-                {result.analysisSource && SOURCE_LABEL[result.analysisSource] && (
-                  <p className="text-xs text-zinc-500">{SOURCE_LABEL[result.analysisSource]}</p>
+                {result.analysisSource && (
+                  <p className="text-xs text-zinc-500">
+                    {SOURCE_LABEL[result.analysisSource]}
+                    {result.aiFallbackReason && ` IA na nuvem não usada: ${describeAiFallback(result.aiFallbackReason)}.`}
+                  </p>
                 )}
                 {result.isLocal && (!result.analysisSource || result.analysisSource === 'title-only') && (
                   <div role="note" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-relaxed text-amber-100">

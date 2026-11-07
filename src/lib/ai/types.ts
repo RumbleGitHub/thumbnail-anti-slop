@@ -183,6 +183,8 @@ export interface DirectorResult {
   suggestedClarification?: string[];
   directorWarnings: string[];
   rawInterpretation?: string;
+  /** How many reference images the director actually analyzed (free director only). */
+  referencesAnalyzed?: number;
 }
 
 export interface VisualDirector {

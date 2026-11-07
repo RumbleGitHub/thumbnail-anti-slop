@@ -3065,8 +3065,8 @@ console.log('\n40. Testando IA gratuita (Workers AI simulado): limites, privacid
   assert.match(vis.topProblem, /neon/i, 'Medição forte (neon) continua sendo o problema principal');
   assert.match(vis.fixPrompt, /PRESERVE:\n1\. The main subject \(a man holding a PS5\)/);
   wai.setWorkersAiBindingForTests(fakeAi('I cannot help with that.'));
-  assert.equal(await analyzeWithFreeVision(IMG, metrics), null, 'Resposta fora do formato = fallback local');
-  assert.equal(await analyzeWithFreeVision('https://example.com/a.jpg', metrics), null, 'Só data URL de imagem é enviada');
+  assert.equal((await analyzeWithFreeVision(IMG, metrics)).failed, 'unusable-answer', 'Resposta fora do formato = fallback local');
+  assert.equal((await analyzeWithFreeVision('https://example.com/a.jpg', metrics)).failed, 'unsupported-image', 'Só data URL de imagem é enviada');
   console.log('  ✓ TEST 40.3: ANALISAR com IA grátis junta observações visuais às medições; resposta inválida cai para o local.');
 
   // 40.4 IMPROVE: exact quoted text is sacred; engine still applies anti-slop/format.
@@ -3074,12 +3074,16 @@ console.log('\n40. Testando IA gratuita (Workers AI simulado): limites, privacid
   const ok = await improveWithFreeText({ rawPrompt: 'epic thumbnail guy holding ps5, neon glow, 8k, text "VALE A PENA?"', targetModel: 'GERAL' });
   assert.ok(ok && ok.improvedPrompt.includes('VALE A PENA?') && ok.changes[0].startsWith('IA: '), 'Reescrita aceita preserva o texto');
   wai.setWorkersAiBindingForTests(fakeAi('{"changes":["x"],"improvedPrompt":"Photographic thumbnail of a man holding a PS5 with the text IS IT WORTH IT"}'));
-  assert.equal(await improveWithFreeText({ rawPrompt: 'guy holding ps5, text "VALE A PENA?"', targetModel: 'GERAL' }), null, 'Texto traduzido/perdido = reescrita descartada');
-  wai.setWorkersAiBindingForTests(fakeAi('not json'));
+  assert.equal((await improveWithFreeText({ rawPrompt: 'guy holding ps5, text "VALE A PENA?"', targetModel: 'GERAL' })).failed, 'exact-text-lost', 'Texto traduzido/perdido = reescrita descartada');
   // Invented domestic setting (seen live with the 8B model) is rejected too.
   wai.setWorkersAiBindingForTests(fakeAi('{"changes":["x"],"improvedPrompt":"A young man sitting in a cozy living room holding a PS5, natural window light"}'));
-  assert.equal(await improveWithFreeText({ rawPrompt: 'guy holding ps5, neon glow, 8k', targetModel: 'GERAL' }), null, 'Cenário doméstico inventado = descartado');
-  assert.equal(await improveWithFreeText({ rawPrompt: 'guy holding ps5 neon', targetModel: 'GERAL' }), null);
+  assert.equal((await improveWithFreeText({ rawPrompt: 'guy holding ps5, neon glow, 8k', targetModel: 'GERAL' })).failed, 'invented-setting', 'Cenário doméstico inventado = descartado');
+  wai.setWorkersAiBindingForTests(fakeAi('not json'));
+  assert.equal((await improveWithFreeText({ rawPrompt: 'guy holding ps5 neon', targetModel: 'GERAL' })).failed, 'unusable-answer', 'JSON inválido = motor local');
+  // Live answer through the Workers binding without the final "}" (2026-11-07): still usable.
+  wai.setWorkersAiBindingForTests(fakeAi('{"changes": [\n  "Removido \'neon glow\' e \'8k\'"\n], \n"improvedPrompt": "Photograph of a guy holding a PS5, natural light, text \\"VALE A PENA?\\", calm expression"'));
+  const truncated = await improveWithFreeText({ rawPrompt: 'epic gaming thumbnail of a guy holding a ps5, neon glow, 8k, text "VALE A PENA?"', targetModel: 'GERAL' });
+  assert.ok(!truncated.failed && truncated.improvedPrompt.includes('VALE A PENA?'), 'JSON sem a chave final continua aproveitado');
   console.log('  ✓ TEST 40.4: MELHORAR com IA grátis descarta reescritas que perdem o texto exato; JSON inválido = motor local.');
 
   // 40.5 CREATE director: no face photos, role-limited facts, never decisive.
@@ -3106,6 +3110,11 @@ console.log('\n40. Testando IA gratuita (Workers AI simulado): limites, privacid
   assert.equal(reconciled.taskType, local.taskType, 'IA grátis nunca muda o tipo de tarefa');
   assert.equal(reconciled.faceOwner, local.faceOwner, 'Rosto continua com a regra local');
   assert.ok(reconciled.preserve.some(p => /leather armor/.test(p)), 'Fatos da imagem-alvo entram no PRESERVE');
+  assert.equal(dirResult.referencesAnalyzed, 2, 'Conta as imagens realmente analisadas (alvo + produto; rosto e "só atmosfera" fora)');
+  // Live (real Worker, 2026-11-07): answer without the "PRODUCT:" label is still used.
+  wai.setWorkersAiBindingForTests(fakeAi('**Sony PlayStation 2** gaming console.'));
+  const unlabeled = await new WorkersAIDirector().analyze({ userIdea: 'x', references: mapReferencesToDirectorInput([refs[3]]) });
+  assert.match(unlabeled.directorWarnings.join(' '), /como: Sony PlayStation 2 gaming console\. Se não/, 'Resposta sem rótulo ainda identifica o produto (sem ** nem ponto duplo)');
   console.log('  ✓ TEST 40.5: Diretor grátis não envia rosto, só descreve papéis permitidos e nunca muda autoria ou tarefa.');
 
   // 40.6 Provider cascade and Gemini free-tier privacy.
@@ -3130,5 +3139,71 @@ console.log('\n40. Testando IA gratuita (Workers AI simulado): limites, privacid
 
   wai.setWorkersAiBindingForTests(undefined);
   restoreEnv();
+}
+
+// 41. Orçamento diário global (Durable Object) sob concorrência — SIMULADO com o mesmo ledger
+console.log('\n41. Testando orçamento global de Neurons sob concorrência (ledger do Durable Object)...');
+{
+  const wai = await import('../src/lib/ai/free/workersAi.ts');
+  const ledger = await import('../src/lib/ai/free/budgetLedger.ts');
+  const savedEnv = { ...process.env };
+  process.env.FREE_AI_PROVIDER = 'workers-ai';
+  process.env.FREE_AI_MAX_REQUESTS_PER_MINUTE = '120';
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // Same semantics as FreeAiBudget: one shared state, each RPC applied atomically (after a network-like delay).
+  const makeBudgetStub = () => {
+    const state = ledger.emptyLedger();
+    let queue = Promise.resolve();
+    const atomic = fn => (queue = queue.then(async () => { await sleep(1); return fn(); }));
+    return {
+      state,
+      reserve: (a, l, m, now) => atomic(() => ({ ...ledger.reserve(state, a, l, m, now), day: state.day })),
+      settle: (d, r, a) => atomic(() => ledger.settle(state, d, r, a)),
+      exhaust: (d, l) => atomic(() => ledger.exhaust(state, d, l)),
+      used: now => atomic(() => ledger.used(state, now)),
+    };
+  };
+  let aiCalls = 0;
+  const slowAi = { async run() { aiCalls++; await sleep(20); return { choices: [{ message: { content: 'ok' } }] }; } };
+  const call = () => wai.runWorkersAi(wai.WORKERS_AI_MODELS.text, {}, { inputTokensEstimate: 400, maxOutputTokens: 600 });
+  const worst = Math.ceil((400 * 24545 + 600 * 77273) / 1e6);
+
+  // 41.1 50 concurrent requests (as if from many Worker instances) share one ledger: never above the cap.
+  process.env.FREE_AI_DAILY_NEURONS = String(worst * 7 + 3);
+  const stub = makeBudgetStub();
+  wai.setWorkersAiBindingForTests(slowAi, stub);
+  aiCalls = 0;
+  const results = await Promise.all(Array.from({ length: 50 }, call));
+  assert.equal(results.filter(r => r.ok).length, 7, 'Exatamente 7 chamadas cabem no teto');
+  assert.equal(aiCalls, 7, 'Nenhuma chamada extra chega ao modelo');
+  assert.ok(results.filter(r => !r.ok).every(r => r.reason === 'daily-budget-exhausted'));
+  assert.ok(stub.state.neurons <= Number(process.env.FREE_AI_DAILY_NEURONS), 'Ledger nunca passa do teto');
+  console.log(`  ✓ TEST 41.1: 50 pedidos concorrentes, ledger compartilhado: 7 chamadas (${worst} Neurons cada no pior caso), 43 barrados, teto nunca ultrapassado.`);
+
+  // 41.2 Real usage replaces the reservation; ledger down = fail closed (model never called).
+  const stub2 = makeBudgetStub();
+  process.env.FREE_AI_DAILY_NEURONS = '8000';
+  wai.setWorkersAiBindingForTests({ async run() { return { choices: [{ message: { content: 'ok' } }], usage: { neurons: 12.3 } }; } }, stub2);
+  assert.ok((await call()).ok);
+  assert.equal(stub2.state.neurons, 13, 'Reserva substituída pelo uso real (usage.neurons arredondado para cima)');
+  aiCalls = 0;
+  wai.setWorkersAiBindingForTests(slowAi, { reserve: async () => { throw new Error('DO unavailable'); }, settle: async () => {}, exhaust: async () => {}, used: async () => 0 });
+  const down = await call();
+  assert.equal(down.reason, 'budget-unavailable');
+  assert.equal(aiCalls, 0, 'Sem ledger, a IA não é chamada');
+  console.log('  ✓ TEST 41.2: Uso real substitui a reserva; ledger indisponível = IA não chamada (fail closed).');
+
+  // 41.3 Without the Durable Object (tests / next dev): in-process ledger is race-free too.
+  process.env.FREE_AI_DAILY_NEURONS = String(worst * 3 + 1);
+  wai.setWorkersAiBindingForTests(slowAi, null);
+  aiCalls = 0;
+  const local = await Promise.all(Array.from({ length: 20 }, call));
+  assert.equal(local.filter(r => r.ok).length, 3);
+  assert.equal(aiCalls, 3);
+  console.log('  ✓ TEST 41.3: Sem Durable Object, o ledger em memória também não é furado por concorrência.');
+
+  wai.setWorkersAiBindingForTests(undefined);
+  for (const k of Object.keys(process.env)) if (!(k in savedEnv)) delete process.env[k];
+  Object.assign(process.env, savedEnv);
 }
 console.log('\n✅ TODOS OS TESTES PASSARAM COM SUCESSO! VALIDAÇÃO CONCLUÍDA.');

@@ -42,9 +42,10 @@ export async function POST(req: NextRequest) {
     let directorLatencyMs: number | undefined;
 
     const hasImages = (body.references || []).length > 0;
-    // The free Workers AI director only runs when the creator allowed free AI for this request.
-    const freeAllowed = dirProvider !== 'workers-ai' || (body as { allowFreeAi?: boolean }).allowFreeAi === true;
-    const shouldInvokeDirector = Boolean(director && director.isConfigured() && hasImages && freeAllowed);
+    // The creator's "IA na nuvem" switch governs every external AI provider (free or paid):
+    // without it, no reference image is forwarded to any AI service.
+    const cloudAllowed = (body as { allowCloudAi?: boolean }).allowCloudAi === true;
+    const shouldInvokeDirector = Boolean(director && director.isConfigured() && hasImages && cloudAllowed);
 
     if (shouldInvokeDirector && director) {
       const dirStart = Date.now();
@@ -162,6 +163,15 @@ export async function POST(req: NextRequest) {
       outputMetadata: engineResult.outputMetadata,
       targetModel: engineResult.targetModel,
       // Free reference checks ("product looks like: ...") are shown with the other usage notes.
+      // Who helped: the prompt itself always comes from the deterministic engine.
+      aiAssist: directorResult
+        ? {
+            provider: dirProvider,
+            referencesChecked: directorResult.referencesAnalyzed ?? (body.references || []).length,
+            findings: directorResult.visualFacts.length + (directorResult.directorWarnings?.length || 0),
+            fallbackReason: directorResult.rawInterpretation?.match(/fallback: ([\w-]+)/)?.[1],
+          }
+        : { provider: 'none' },
       modelNotes: dirProvider === 'workers-ai' && directorResult?.directorWarnings?.length
         ? [...(engineResult.modelNotes || []), ...directorResult.directorWarnings]
         : engineResult.modelNotes,

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { analyzeThumbnailLocally } from '@/lib/simpleEngine/engine';
 import { getVisualDirector, getVisualAuditor, isGeminiFreeTier } from '@/lib/ai/orchestrator';
 import { analyzeFromMetrics, type ImageMetrics } from '@/lib/simpleEngine/pixelAnalysis';
-import { analyzeWithFreeVision } from '@/lib/ai/free/freeFeatures';
+import { analyzeWithFreeVision, isFreeAiFailure } from '@/lib/ai/free/freeFeatures';
 import { isFreeAiEnabled } from '@/lib/ai/free/workersAi';
 
 const METRIC_KEYS: (keyof ImageMetrics)[] = ['width', 'height', 'meanLuma', 'lumaStd', 'clippedHighlights', 'clippedFlatShare', 'crushedShadows', 'meanSaturation', 'neonShare', 'colorfulness', 'edgeDensity', 'centerFocus'];
@@ -16,8 +16,12 @@ function parseMetrics(value: unknown): ImageMetrics | null {
 
 export async function POST(req: NextRequest) {
   try {
-    const { image, videoTitle, metrics: rawMetrics, allowFreeAi } = await req.json();
+    const { image, videoTitle, metrics: rawMetrics, allowCloudAi } = await req.json();
     const metrics = parseMetrics(rawMetrics);
+    // The creator's "IA na nuvem" switch governs EVERY external AI provider (free or paid):
+    // without an explicit true, the image is never forwarded to any AI service.
+    const cloudAllowed = allowCloudAi === true;
+    let aiFallbackReason: string | undefined;
 
     if (!image) {
       return NextResponse.json(
@@ -28,7 +32,7 @@ export async function POST(req: NextRequest) {
 
     const { director, providerName: dirProvider } = getVisualDirector();
     // Owner-paid providers only; a free-tier Gemini key never receives the thumbnail (it may show a face).
-    const usePaidProvider = Boolean(director && director.isConfigured()) &&
+    const usePaidProvider = cloudAllowed && Boolean(director && director.isConfigured()) &&
       (dirProvider === 'openai' || (dirProvider === 'gemini' && !isGeminiFreeTier()));
 
     if (usePaidProvider) {
@@ -173,9 +177,12 @@ Output strictly valid JSON:
     }
 
     // Free hosted vision (Cloudflare Workers AI): only when enabled by the owner and allowed by the user.
-    if (allowFreeAi === true && isFreeAiEnabled()) {
+    if (cloudAllowed && isFreeAiEnabled()) {
       const free = await analyzeWithFreeVision(image, metrics);
-      if (free) {
+      if (isFreeAiFailure(free)) {
+        aiFallbackReason = free.failed;
+        console.warn('Free AI analyze fallback:', free.failed);
+      } else {
         const { neurons, latencyMs, ...result } = free;
         return NextResponse.json({ ...result, usage: { provider: 'workers-ai', neurons, latencyMs } });
       }
@@ -183,7 +190,7 @@ Output strictly valid JSON:
 
     // Local pixel measurements from the browser (nothing uploaded was needed for these).
     if (metrics) {
-      return NextResponse.json({ ...analyzeFromMetrics(metrics), analysisSource: 'local-pixels' });
+      return NextResponse.json({ ...analyzeFromMetrics(metrics), analysisSource: 'local-pixels', aiFallbackReason });
     }
 
     // Last resort: title-only checklist (the image was not examined).
@@ -191,7 +198,8 @@ Output strictly valid JSON:
     return NextResponse.json({
       ...localResult,
       isLocal: true,
-      analysisSource: 'title-only'
+      analysisSource: 'title-only',
+      aiFallbackReason
     });
   } catch (error) {
     console.error('Error in /api/ai/simple-analyze:', error);

@@ -1,6 +1,7 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"main": ".open-next/worker.js",
+	// Custom entry: the OpenNext handler (.open-next/worker.js) + the FreeAiBudget Durable Object.
+	"main": "cloudflare-worker.ts",
 	"name": "thumbnail-anti-slop",
 	// Same date the production Worker was first deployed with (autoconfig, 2026-11-04).
 	"compatibility_date": "2026-11-04",
@@ -33,6 +34,15 @@
 	"ai": {
 		"binding": "AI"
 	},
+	// Global daily Neuron ledger shared by every Worker instance (SQLite Durable Object, Free plan).
+	"durable_objects": {
+		"bindings": [
+			{ "name": "FREE_AI_BUDGET", "class_name": "FreeAiBudget" }
+		]
+	},
+	"migrations": [
+		{ "tag": "v1-free-ai-budget", "new_sqlite_classes": ["FreeAiBudget"] }
+	],
 	"vars": {
 		// "workers-ai" turns the free layer on; any other value (or removing it) turns it off.
 		"FREE_AI_PROVIDER": "workers-ai",
@@ -45,6 +55,12 @@
 	"previews": {
 		"ai": {
 			"binding": "AI"
+		},
+		// Each Preview gets its own Durable Object namespace, so preview usage has its own ledger.
+		"durable_objects": {
+			"bindings": [
+				{ "name": "FREE_AI_BUDGET", "class_name": "FreeAiBudget" }
+			]
 		},
 		"vars": {
 			"FREE_AI_PROVIDER": "workers-ai",

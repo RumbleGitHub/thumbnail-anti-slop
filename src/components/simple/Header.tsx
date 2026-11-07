@@ -12,12 +12,14 @@ interface HeaderProps {
   onOpenHistory: () => void;
   historyCount: number;
   aiConfigured: boolean;
-  /** Present only when the server offers free hosted AI; lets the creator turn it off. */
-  freeAi?: { allowed: boolean; onToggle: () => void };
+  /** Present only when the server offers cloud AI; the creator opts in (off by default). */
+  cloudAi?: { allowed: boolean; onToggle: () => void; paidProvider: 'openai' | 'gemini' | null };
 }
 
-const FREE_AI_EXPLANATION =
-  'IA gratuita (Cloudflare Workers AI): imagens de análise e referências de produto/cenário/alvo são enviadas à Cloudflare, que não guarda nem treina com elas. Fotos de rosto nunca são enviadas. Desligue para manter tudo no navegador.';
+function cloudAiExplanation(paidProvider: 'openai' | 'gemini' | null): string {
+  const where = paidProvider === 'openai' ? 'à OpenAI' : paidProvider === 'gemini' ? 'ao Google Gemini' : 'à Cloudflare Workers AI (Llama 4 Scout), que não guarda nem treina com elas';
+  return `IA na nuvem (desligada por padrão). Ligada: a thumbnail em ANALISAR, as referências de produto, cenário e imagem-alvo em CRIAR e o texto em MELHORAR vão ${where}. Essas imagens podem conter rostos. Fotos marcadas como Pessoa nunca são enviadas a modelos gratuitos. Desligada: nenhuma imagem vai para IA; ANALISAR roda só no navegador.`;
+}
 
 const MODES: { id: Mode; label: string; shortLabel: string }[] = [
   { id: 'CRIAR', label: 'Criar', shortLabel: 'Criar' },
@@ -31,7 +33,7 @@ export function SimpleHeader({
   onOpenHistory,
   historyCount,
   aiConfigured,
-  freeAi
+  cloudAi
 }: HeaderProps) {
   return (
     <header className="sticky top-0 z-30 border-b border-zinc-800/70 bg-[#090a0d]/95 backdrop-blur">
@@ -41,18 +43,20 @@ export function SimpleHeader({
           <span className="truncate text-[15px] font-bold uppercase tracking-[0.06em] text-zinc-50">
             Thumbnail Anti-Slop
           </span>
-          {freeAi ? (
+          {cloudAi ? (
             <button
               type="button"
-              onClick={freeAi.onToggle}
-              aria-pressed={freeAi.allowed}
-              title={FREE_AI_EXPLANATION}
-              className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[11px] transition-colors hover:bg-zinc-900 ${focusRing} ${
-                freeAi.allowed ? 'text-emerald-300' : 'text-zinc-500'
+              onClick={cloudAi.onToggle}
+              aria-pressed={cloudAi.allowed}
+              aria-label={`IA na nuvem: ${cloudAi.allowed ? 'ligada' : 'desligada'}. ${cloudAiExplanation(cloudAi.paidProvider)}`}
+              title={cloudAiExplanation(cloudAi.paidProvider)}
+              className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[11px] transition-colors hover:bg-zinc-900 sm:h-8 sm:px-2 ${focusRing} ${
+                cloudAi.allowed ? 'text-emerald-300' : 'text-zinc-500'
               }`}
             >
-              <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${freeAi.allowed ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
-              <span className="sr-only sm:not-sr-only">{freeAi.allowed ? 'IA grátis ligada' : 'IA grátis desligada'}</span>
+              <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${cloudAi.allowed ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+              <span aria-hidden="true" className="sm:hidden">IA</span>
+              <span className="hidden sm:inline">{cloudAi.allowed ? 'IA na nuvem ligada' : 'IA na nuvem desligada'}</span>
             </button>
           ) : (
             <span

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { improvePrompt, resolveOutputMetadata } from '@/lib/simpleEngine/engine';
 import { getVisualDirector } from '@/lib/ai/orchestrator';
 import { type ImprovePromptInput, normalizeTargetModel } from '@/types/simple';
-import { improveWithFreeText } from '@/lib/ai/free/freeFeatures';
+import { improveWithFreeText, isFreeAiFailure } from '@/lib/ai/free/freeFeatures';
 import { isFreeAiEnabled } from '@/lib/ai/free/workersAi';
 
 export async function POST(req: NextRequest) {
@@ -17,7 +17,11 @@ export async function POST(req: NextRequest) {
     const { director, providerName: dirProvider } = getVisualDirector();
 
     // Owner-paid text providers only (the free layer is handled below).
-    if (director && director.isConfigured() && (dirProvider === 'openai' || dirProvider === 'gemini')) {
+    // The creator's "IA na nuvem" switch governs every external AI provider (free or paid).
+    const cloudAllowed = rawBody.allowCloudAi === true;
+    let aiFallbackReason: string | undefined;
+
+    if (cloudAllowed && director && director.isConfigured() && (dirProvider === 'openai' || dirProvider === 'gemini')) {
       try {
         const apiKey = dirProvider === 'openai' ? process.env.OPENAI_API_KEY! : process.env.GEMINI_API_KEY!;
         const systemPrompt = `You are an elite photographic prompt doctor and anti-slop purifier for image models (Midjourney, FLUX, DALL-E).
@@ -98,6 +102,7 @@ Output strictly JSON with:
           const normModel = normalizeTargetModel(body.targetModel);
           return NextResponse.json({
             isLocal: false,
+            aiSource: 'provider',
             changes: parsed.changes || [],
             improvedPrompt: parsed.improvedPrompt || body.rawPrompt,
             targetModel: normModel,
@@ -110,11 +115,14 @@ Output strictly JSON with:
     }
 
     // Free hosted text model (Cloudflare Workers AI) + deterministic engine pass.
-    if (rawBody.allowFreeAi === true && isFreeAiEnabled()) {
+    if (cloudAllowed && isFreeAiEnabled()) {
       const free = await improveWithFreeText(body);
-      if (free) {
+      if (isFreeAiFailure(free)) {
+        aiFallbackReason = free.failed;
+        console.warn('Free AI improve fallback:', free.failed);
+      } else {
         const { neurons, latencyMs, aiAssisted, ...result } = free;
-        return NextResponse.json({ ...result, isLocal: false, aiAssisted, usage: { provider: 'workers-ai', neurons, latencyMs } });
+        return NextResponse.json({ ...result, isLocal: false, aiAssisted, aiSource: 'workers-ai', usage: { provider: 'workers-ai', neurons, latencyMs } });
       }
     }
 
@@ -122,7 +130,9 @@ Output strictly JSON with:
     const localResult = improvePrompt(body);
     return NextResponse.json({
       ...localResult,
-      isLocal: true
+      isLocal: true,
+      aiSource: 'engine',
+      aiFallbackReason
     });
   } catch (error) {
     console.error('Error in /api/ai/simple-improve:', error);

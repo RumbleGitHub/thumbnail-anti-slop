@@ -764,6 +764,8 @@ export interface CreateThumbnailResult {
   targetModel?: TargetModel;
   /** How to use the prompt with the chosen model (attach references, text limits); never part of the prompt. */
   modelNotes?: string[];
+  /** Which cloud AI (if any) checked the references; the prompt itself always comes from the engine. */
+  aiAssist?: { provider: 'workers-ai' | 'openai' | 'gemini' | 'local' | 'none'; referencesChecked?: number; findings?: number; fallbackReason?: string };
 }
 
 export interface ImprovePromptInput {
@@ -793,6 +795,8 @@ export interface AnalyzeThumbnailSimpleResult {
    * - 'title-only': no image data available (generic checklist)
    */
   analysisSource?: 'provider' | 'workers-ai' | 'local-pixels' | 'title-only';
+  /** Set when cloud AI was allowed but could not be used (budget, error...); see describeAiFallback. */
+  aiFallbackReason?: string;
 }
 
 export interface SimpleHistoryItem {

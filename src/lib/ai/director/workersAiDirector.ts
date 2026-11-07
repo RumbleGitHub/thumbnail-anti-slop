@@ -17,16 +17,30 @@ import { askImage, isFreeAiEnabled } from '../free/workersAi.ts';
 const FACT_CONFIDENCE = 0.65;
 const MAX_IMAGES = 3;
 
+// Llama 4 Acceptable Use Policy 1.e: no inference about people's identity.
 const QUESTIONS: Partial<Record<DirectorReferenceInput['role'], string>> = {
-  IMAGEM_ALVO: 'Describe this image for an editor in three short lines:\nPROPS: objects held or carried, or NONE\nCLOTHING: clothing or armor, or NONE\nHEAD: head direction (for example facing camera, turned left)',
+  IMAGEM_ALVO: 'Describe this image for an editor in three short lines (never identify or guess who any person is):\nPROPS: objects held or carried, or NONE\nCLOTHING: clothing or armor, or NONE\nHEAD: head direction (for example facing camera, turned left)',
   'CENÁRIO': 'Describe this place in one line:\nPLACE: type of place and its main visible features (max 20 words)',
   PRODUTO: 'Identify the product in one line:\nPRODUCT: what the object is, with brand and model if visible, or NOT A PRODUCT',
 };
 
+function clean(v: string): string {
+  // Markdown emphasis and trailing punctuation are dropped: values are embedded in sentences.
+  const out = v.replace(/[*_`]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 160).replace(/[.;,\s]+$/, '');
+  return /^(none|n\/a|no)\.?$/i.test(out) ? '' : out;
+}
+
 function line(answer: string, key: string): string {
-  const m = answer.match(new RegExp(`${key}\\s*[:：]\\s*(.+)`, 'i'));
-  const v = (m?.[1] || '').replace(/\s+/g, ' ').trim().slice(0, 160);
-  return /^(none|n\/a|no)\.?$/i.test(v) ? '' : v;
+  const m = answer.match(new RegExp(`${key}\\**\\s*[:：]\\s*(.+)`, 'i'));
+  return clean(m?.[1] || '');
+}
+
+/** Single-value answers: the labeled line, or (seen live) the first short line when the label is missing. */
+function single(answer: string, key: string): string {
+  const labeled = line(answer, key);
+  if (labeled) return labeled;
+  const first = answer.split(/\r?\n/).map(l => l.trim()).find(Boolean) || '';
+  return first.length <= 120 ? clean(first) : '';
 }
 
 export class WorkersAIDirector implements VisualDirector {
@@ -39,6 +53,8 @@ export class WorkersAIDirector implements VisualDirector {
   async analyze(input: DirectorInput): Promise<DirectorResult> {
     const facts: VisualFact[] = [];
     const warnings: string[] = [];
+    const failures: string[] = [];
+    let checked = 0;
 
     const eligible = input.references
       .filter(r => r.role !== 'PESSOA' && QUESTIONS[r.role])
@@ -48,7 +64,11 @@ export class WorkersAIDirector implements VisualDirector {
 
     for (const ref of eligible) {
       const res = await askImage(ref.url, QUESTIONS[ref.role]!, 120);
-      if (!res.ok) continue; // Budget, throttle or error: keep whatever we have; local rules decide.
+      if (!res.ok) {
+        failures.push(res.reason); // Budget, throttle or error: keep whatever we have; local rules decide.
+        continue;
+      }
+      checked++;
       const answer = res.data;
 
       if (ref.role === 'IMAGEM_ALVO' || ref.isTarget) {
@@ -59,10 +79,10 @@ export class WorkersAIDirector implements VisualDirector {
         if (clothing) facts.push({ referenceId: ref.id, category: 'CLOTHING_ARMOR', fact: clothing, confidence: FACT_CONFIDENCE });
         if (head) facts.push({ referenceId: ref.id, category: 'HEAD_ORIENTATION', fact: head, confidence: FACT_CONFIDENCE });
       } else if (ref.role === 'CENÁRIO') {
-        const place = line(answer, 'PLACE');
+        const place = single(answer, 'PLACE');
         if (place) facts.push({ referenceId: ref.id, category: 'ENVIRONMENT', fact: place, confidence: FACT_CONFIDENCE });
       } else if (ref.role === 'PRODUTO') {
-        const product = line(answer, 'PRODUCT');
+        const product = single(answer, 'PRODUCT');
         if (/not a product/i.test(product)) {
           warnings.push(`A referência de produto "${ref.name}" não parece mostrar um produto. Confira se o papel está certo.`);
         } else if (product) {
@@ -84,7 +104,8 @@ export class WorkersAIDirector implements VisualDirector {
       avoid: [],
       ambiguities: [],
       directorWarnings: warnings,
-      rawInterpretation: 'workers-ai reference facts',
+      referencesAnalyzed: checked,
+      rawInterpretation: `workers-ai: checked ${checked} of ${eligible.length} reference images${failures.length ? `; fallback: ${[...new Set(failures)].join(', ')}` : ''}`,
     };
   }
 }

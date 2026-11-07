@@ -7,6 +7,20 @@ import { findingsFromMetrics, type ImageMetrics } from '../../simpleEngine/pixel
 import { improvePrompt } from '../../simpleEngine/engine.ts';
 import { askImage, askText, extractJsonObject } from './workersAi.ts';
 
+/** Why the free layer did not produce the result (shown to the creator, logged for the owner). */
+export interface FreeAiFailure {
+  failed: string;
+}
+export const isFreeAiFailure = (v: unknown): v is FreeAiFailure =>
+  typeof v === 'object' && v !== null && typeof (v as FreeAiFailure).failed === 'string';
+
+/** Owner-only diagnostics (FREE_AI_DEBUG=true): logs the start of a model answer that could not be used. */
+function debugUnusable(feature: string, answer: string): void {
+  if (typeof process !== 'undefined' && process.env?.FREE_AI_DEBUG === 'true') {
+    console.warn(`[free-ai] unusable ${feature} answer:`, JSON.stringify(answer.slice(0, 400)));
+  }
+}
+
 const clean = (s: string | undefined, max = 220) =>
   (s || '').replace(/\s+/g, ' ').replace(/^[-*•\d.)\s]+/, '').trim().slice(0, max);
 const isNone = (s: string) => !s || /^(none|nenhum[a]?|n\/a|no|não|nada)\.?$/i.test(s.trim());
@@ -21,7 +35,7 @@ export function parseLabeledAnswer(answer: string): Record<string, string> {
   return out;
 }
 
-export const ANALYZE_QUESTION = `You are auditing a YouTube thumbnail for visible artificial "AI slop" defects. Look only at what is visible. Reply with exactly these four lines and nothing else:
+export const ANALYZE_QUESTION = `You are auditing a YouTube thumbnail for visible artificial "AI slop" defects. Look only at what is visible. Never identify or guess who any person is. Reply with exactly these four lines and nothing else:
 SUBJECT: the main subject in at most 12 words
 TEXT: the exact visible words in the image, or NONE
 ARTIFICIAL: up to 2 visible artificial-looking defects (for example plastic skin, extra or melted fingers, warped product, neon glow, fake bokeh, garbled letters), separated by ";", or NONE
@@ -34,10 +48,10 @@ WORKS: one thing that works visually, in at most 15 words`;
 export async function analyzeWithFreeVision(
   image: string,
   metrics: ImageMetrics | null
-): Promise<(AnalyzeThumbnailSimpleResult & { neurons: number; latencyMs: number }) | null> {
-  if (!/^data:image\/(png|jpe?g|webp);base64,/.test(image)) return null;
+): Promise<(AnalyzeThumbnailSimpleResult & { neurons: number; latencyMs: number }) | FreeAiFailure> {
+  if (!/^data:image\/(png|jpe?g|webp);base64,/.test(image)) return { failed: 'unsupported-image' };
   const res = await askImage(image, ANALYZE_QUESTION, 220);
-  if (!res.ok) return null;
+  if (!res.ok) return { failed: res.reason };
 
   const a = parseLabeledAnswer(res.data);
   const subject = clean(a.SUBJECT, 120);
@@ -45,7 +59,10 @@ export async function analyzeWithFreeVision(
   const artificial = isNone(a.ARTIFICIAL || '') ? [] : (a.ARTIFICIAL || '').split(/;|\s\|\s/).map(s => clean(s, 160)).filter(s => s && !isNone(s)).slice(0, 2);
   const works = isNone(a.WORKS || '') ? '' : clean(a.WORKS, 160);
   // Unusable answer (model ignored the format): fall back instead of showing noise.
-  if (!subject && artificial.length === 0 && !works) return null;
+  if (!subject && artificial.length === 0 && !works) {
+    debugUnusable('analyze', res.data);
+    return { failed: 'unusable-answer' };
+  }
 
   const metricIssues = metrics ? findingsFromMetrics(metrics).filter(f => f.kind === 'issue').sort((x, y) => y.severity - x.severity) : [];
   const metricGood = metrics ? findingsFromMetrics(metrics).filter(f => f.kind === 'good').sort((x, y) => y.severity - x.severity) : [];
@@ -110,20 +127,23 @@ export function quotedTexts(prompt: string): string[] {
  */
 export async function improveWithFreeText(
   input: ImprovePromptInput
-): Promise<(ImprovePromptResult & { neurons: number; latencyMs: number; aiAssisted: true }) | null> {
+): Promise<(ImprovePromptResult & { neurons: number; latencyMs: number; aiAssisted: true }) | FreeAiFailure> {
   const raw = (input.rawPrompt || '').trim();
-  if (raw.length < 8 || raw.length > 4000) return null;
+  if (raw.length < 8 || raw.length > 4000) return { failed: 'prompt-length' };
   const res = await askText(IMPROVE_SYSTEM, `Prompt to improve:\n${raw}`, 600);
-  if (!res.ok) return null;
+  if (!res.ok) return { failed: res.reason };
 
   const parsed = extractJsonObject<{ changes?: unknown; improvedPrompt?: unknown }>(res.data);
   const rewritten = typeof parsed?.improvedPrompt === 'string' ? parsed.improvedPrompt.trim() : '';
-  if (rewritten.length < 30) return null;
+  if (rewritten.length < 30) {
+    debugUnusable('improve', res.data);
+    return { failed: 'unusable-answer' };
+  }
   // Exact text is sacred: if the model dropped or altered any quoted text, discard the rewrite.
-  if (quotedTexts(raw).some(t => !rewritten.includes(t))) return null;
+  if (quotedTexts(raw).some(t => !rewritten.includes(t))) return { failed: 'exact-text-lost' };
   // Never accept an invented domestic setting (project rule; the 8B model did this in 3/4 benchmark cases).
   const domestic = /\b(living\s*room|bedroom|sofa|couch|cozy\s+(?:room|home)|home\s+office|desk\s+lamp)\b/i;
-  if (domestic.test(rewritten) && !domestic.test(raw)) return null;
+  if (domestic.test(rewritten) && !domestic.test(raw)) return { failed: 'invented-setting' };
 
   const engineOut = improvePrompt({ ...input, rawPrompt: rewritten });
   const modelChanges = Array.isArray(parsed?.changes) ? parsed.changes.filter((c): c is string => typeof c === 'string').map(c => clean(c, 200)) : [];

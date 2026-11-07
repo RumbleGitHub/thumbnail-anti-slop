@@ -33,6 +33,7 @@ import {
 import { generateSimpleThumbnail } from '@/lib/simpleEngine/engine';
 import { saveSimpleHistoryItem } from '@/lib/simpleEngine/history';
 import { prepareImageForUpload } from '@/lib/client/imageTools';
+import { describeAiFallback } from '@/lib/ai/free/reasons';
 import {
   focusRing,
   fieldLabel,
@@ -96,8 +97,8 @@ const RESERVED_POSITIONS: { id: ReservedSpacePosition; label: string }[] = [
 interface ModeCreateProps {
   onNotify: (msg: string) => void;
   onRefreshHistoryCount: () => void;
-  /** Free hosted vision available and allowed: product/scene/target references get a quick check. */
-  allowFreeAi?: boolean;
+  /** The creator turned "IA na nuvem" on: product/scene/target references get a quick check. */
+  allowCloudAi?: boolean;
 }
 
 function readAsDataUrl(file: File): Promise<string> {
@@ -109,7 +110,7 @@ function readAsDataUrl(file: File): Promise<string> {
   });
 }
 
-export function ModeCreate({ onNotify, onRefreshHistoryCount, allowFreeAi = false }: ModeCreateProps) {
+export function ModeCreate({ onNotify, onRefreshHistoryCount, allowCloudAi = false }: ModeCreateProps) {
   // Main form inputs
   const [videoTitle, setVideoTitle] = useState('');
   const [ideaDescription, setIdeaDescription] = useState('');
@@ -373,7 +374,7 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowFreeAi = fals
 
       // With free AI on, product/scene/target images go to the free vision model: send smaller,
       // metadata-free copies. Face photos (PESSOA) are never analyzed by it.
-      const apiReferences = allowFreeAi
+      const apiReferences = allowCloudAi
         ? await Promise.all(references.map(async r =>
             r.role === 'PRODUTO' || r.role === 'CENÁRIO' || r.role === 'IMAGEM_ALVO'
               ? { ...r, url: await prepareImageForUpload(r.url) }
@@ -382,7 +383,7 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowFreeAi = fals
       const res = await fetch('/api/ai/simple-create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, references: apiReferences, allowFreeAi })
+        body: JSON.stringify({ ...payload, references: apiReferences, allowCloudAi })
       });
 
       let genResult: CreateThumbnailResult;
@@ -396,7 +397,8 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowFreeAi = fals
           approachIndex: currentApproach,
           typographyPlan: data.typographyPlan,
           outputMetadata: data.outputMetadata,
-          modelNotes: data.modelNotes
+          modelNotes: data.modelNotes,
+          aiAssist: data.aiAssist
         };
       } else {
         genResult = generateSimpleThumbnail(payload);
@@ -1051,6 +1053,16 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowFreeAi = fals
                         </span>
                       )}
                     </div>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Fonte: motor anti-slop determinístico
+                      {result.aiAssist?.provider === 'workers-ai'
+                        ? (result.aiAssist.referencesChecked || 0) > 0
+                          ? ` · ${result.aiAssist.referencesChecked} referência(s) conferida(s) por IA na nuvem gratuita${result.aiAssist.findings ? '' : ' (sem observações)'}. Built with Llama.`
+                          : ` · IA na nuvem não conferiu as referências${result.aiAssist.fallbackReason ? ` (${describeAiFallback(result.aiAssist.fallbackReason)})` : ''}.`
+                        : result.aiAssist?.provider === 'openai' || result.aiAssist?.provider === 'gemini'
+                          ? ' · referências analisadas pela IA configurada no servidor.'
+                          : ' (sem IA).'}
+                    </p>
                   </div>
 
                   <button

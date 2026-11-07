@@ -12,19 +12,22 @@ import {
 import { improvePrompt } from '@/lib/simpleEngine/engine';
 import { saveSimpleHistoryItem } from '@/lib/simpleEngine/history';
 import { focusRing, fieldLabel, subLabel, fieldSurface, smallField, panelSurface } from './ui';
+import { describeAiFallback } from '@/lib/ai/free/reasons';
 
 interface ModeImproveProps {
   onNotify: (msg: string) => void;
   onRefreshHistoryCount: () => void;
-  /** Free hosted text model available and allowed (Cloudflare Workers AI). */
-  allowFreeAi?: boolean;
+  /** The creator turned "IA na nuvem" on and the server offers it. */
+  allowCloudAi?: boolean;
 }
 
-export function ModeImprove({ onNotify, onRefreshHistoryCount, allowFreeAi = false }: ModeImproveProps) {
+type ImproveView = ImprovePromptResult & { aiAssisted?: boolean; aiSource?: 'workers-ai' | 'provider' | 'engine'; aiFallbackReason?: string };
+
+export function ModeImprove({ onNotify, onRefreshHistoryCount, allowCloudAi = false }: ModeImproveProps) {
   const [rawPrompt, setRawPrompt] = useState('');
   const [targetModel, setTargetModel] = useState<TargetModel>('GERAL');
   const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState<(ImprovePromptResult & { aiAssisted?: boolean }) | null>(null);
+  const [result, setResult] = useState<ImproveView | null>(null);
   const [copied, setCopied] = useState(false);
 
   const selectableTargetModels = useMemo(() => getSelectableTargetModels(), []);
@@ -48,10 +51,10 @@ export function ModeImprove({ onNotify, onRefreshHistoryCount, allowFreeAi = fal
       const res = await fetch('/api/ai/simple-improve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rawPrompt, targetModel, allowFreeAi })
+        body: JSON.stringify({ rawPrompt, targetModel, allowCloudAi })
       });
 
-      let data: ImprovePromptResult & { aiAssisted?: boolean };
+      let data: ImproveView;
 
       if (res.ok) {
         data = await res.json();
@@ -176,7 +179,7 @@ export function ModeImprove({ onNotify, onRefreshHistoryCount, allowFreeAi = fal
             <div className="flex items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
               <h3 className={fieldLabel}>O que mudei</h3>
               <span className="text-xs text-zinc-500">
-                {result.changes.length} ajustes{result.aiAssisted ? ' · com IA gratuita' : ''}
+                {result.changes.length} ajustes
               </span>
             </div>
             <ul className="space-y-2.5">
@@ -187,6 +190,14 @@ export function ModeImprove({ onNotify, onRefreshHistoryCount, allowFreeAi = fal
                 </li>
               ))}
             </ul>
+            <p className="text-xs text-zinc-500">
+              {result.aiSource === 'workers-ai'
+                ? 'Fonte: IA na nuvem gratuita (Llama 4 Scout) interpretou o pedido; o motor anti-slop aplicou as regras e o formato. Built with Llama.'
+                : result.aiSource === 'provider'
+                  ? 'Fonte: IA na nuvem configurada no servidor.'
+                  : 'Fonte: motor anti-slop determinístico (sem IA).'}
+              {result.aiFallbackReason && ` IA na nuvem não usada: ${describeAiFallback(result.aiFallbackReason)}.`}
+            </p>
             <div className="space-y-1.5 border-t border-zinc-800/70 pt-3">
               <span className={subLabel}>Original enviado</span>
               <p className="line-clamp-3 font-mono text-xs text-zinc-500">{rawPrompt}</p>
