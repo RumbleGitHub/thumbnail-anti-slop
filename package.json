@@ -13,7 +13,8 @@
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
-    "lab:kit": "node --experimental-strip-types --no-warnings tests/quality-lab/real-image-kit.mjs"
+    "lab:kit": "node --experimental-strip-types --no-warnings tests/quality-lab/real-image-kit.mjs",
+    "lab:free-ai": "node --experimental-strip-types --no-warnings tests/quality-lab/free-ai-benchmark.mjs"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.20.16",

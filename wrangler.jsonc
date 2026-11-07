@@ -28,8 +28,29 @@
 	"observability": {
 		"enabled": true
 	},
-	// Worker Previews (wrangler preview): required block, empty = no Preview-specific settings.
-	// Runtime vars/secrets are NOT inherited from production; set them for previews separately.
+	// Workers AI: zero-spend hosted AI (no API key; 10,000 Neurons/day free; on the Workers Free plan
+	// calls beyond that fail instead of being billed). See docs/FREE_AI.md.
+	"ai": {
+		"binding": "AI"
+	},
+	"vars": {
+		// "workers-ai" turns the free layer on; any other value (or removing it) turns it off.
+		"FREE_AI_PROVIDER": "workers-ai",
+		// App-side daily cap (estimated Neurons per isolate), always below the 10,000 free allocation.
+		"FREE_AI_DAILY_NEURONS": "8000",
+		"FREE_AI_MAX_REQUESTS_PER_MINUTE": "20"
+	},
+	// Worker Previews (wrangler preview): previews do NOT inherit production vars or bindings.
 	// https://developers.cloudflare.com/workers/previews/configuration/
-	"previews": {}
+	"previews": {
+		"ai": {
+			"binding": "AI"
+		},
+		"vars": {
+			"FREE_AI_PROVIDER": "workers-ai",
+			// Smaller cap so test branches cannot use up the shared daily allocation.
+			"FREE_AI_DAILY_NEURONS": "2000",
+			"FREE_AI_MAX_REQUESTS_PER_MINUTE": "10"
+		}
+	}
 }

@@ -1,10 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { analyzeThumbnailLocally } from '@/lib/simpleEngine/engine';
-import { getVisualDirector, getVisualAuditor } from '@/lib/ai/orchestrator';
+import { getVisualDirector, getVisualAuditor, isGeminiFreeTier } from '@/lib/ai/orchestrator';
+import { analyzeFromMetrics, type ImageMetrics } from '@/lib/simpleEngine/pixelAnalysis';
+import { analyzeWithFreeVision } from '@/lib/ai/free/freeFeatures';
+import { isFreeAiEnabled } from '@/lib/ai/free/workersAi';
+
+const METRIC_KEYS: (keyof ImageMetrics)[] = ['width', 'height', 'meanLuma', 'lumaStd', 'clippedHighlights', 'clippedFlatShare', 'crushedShadows', 'meanSaturation', 'neonShare', 'colorfulness', 'edgeDensity', 'centerFocus'];
+
+/** Measurements computed in the browser; accepted only when every field is a finite number. */
+function parseMetrics(value: unknown): ImageMetrics | null {
+  if (!value || typeof value !== 'object') return null;
+  const m = value as Record<string, unknown>;
+  return METRIC_KEYS.every(k => typeof m[k] === 'number' && Number.isFinite(m[k] as number)) ? (m as unknown as ImageMetrics) : null;
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const { image, videoTitle } = await req.json();
+    const { image, videoTitle, metrics: rawMetrics, allowFreeAi } = await req.json();
+    const metrics = parseMetrics(rawMetrics);
 
     if (!image) {
       return NextResponse.json(
@@ -14,8 +27,11 @@ export async function POST(req: NextRequest) {
     }
 
     const { director, providerName: dirProvider } = getVisualDirector();
+    // Owner-paid providers only; a free-tier Gemini key never receives the thumbnail (it may show a face).
+    const usePaidProvider = Boolean(director && director.isConfigured()) &&
+      (dirProvider === 'openai' || (dirProvider === 'gemini' && !isGeminiFreeTier()));
 
-    if (director && director.isConfigured()) {
+    if (usePaidProvider) {
       try {
         const apiKey = dirProvider === 'openai' ? process.env.OPENAI_API_KEY! : process.env.GEMINI_API_KEY!;
         const systemPrompt = `You are an exacting visual director auditing a YouTube thumbnail for visual quality, narrative clarity, and synthetic AI slop.
@@ -144,6 +160,7 @@ Output strictly valid JSON:
 
           return NextResponse.json({
             isLocal: false,
+            analysisSource: 'provider',
             functioning: parsed.functioning || [],
             aiLooking: parsed.aiLooking || [],
             topProblem: parsed.topProblem || 'Simplificar o contraste e remover iluminação artificial.',
@@ -155,11 +172,26 @@ Output strictly valid JSON:
       }
     }
 
-    // Local deterministic fallback
+    // Free hosted vision (Cloudflare Workers AI): only when enabled by the owner and allowed by the user.
+    if (allowFreeAi === true && isFreeAiEnabled()) {
+      const free = await analyzeWithFreeVision(image, metrics);
+      if (free) {
+        const { neurons, latencyMs, ...result } = free;
+        return NextResponse.json({ ...result, usage: { provider: 'workers-ai', neurons, latencyMs } });
+      }
+    }
+
+    // Local pixel measurements from the browser (nothing uploaded was needed for these).
+    if (metrics) {
+      return NextResponse.json({ ...analyzeFromMetrics(metrics), analysisSource: 'local-pixels' });
+    }
+
+    // Last resort: title-only checklist (the image was not examined).
     const localResult = analyzeThumbnailLocally(videoTitle);
     return NextResponse.json({
       ...localResult,
-      isLocal: true
+      isLocal: true,
+      analysisSource: 'title-only'
     });
   } catch (error) {
     console.error('Error in /api/ai/simple-analyze:', error);

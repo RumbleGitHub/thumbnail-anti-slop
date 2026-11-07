@@ -16,13 +16,15 @@ import { focusRing, fieldLabel, subLabel, fieldSurface, smallField, panelSurface
 interface ModeImproveProps {
   onNotify: (msg: string) => void;
   onRefreshHistoryCount: () => void;
+  /** Free hosted text model available and allowed (Cloudflare Workers AI). */
+  allowFreeAi?: boolean;
 }
 
-export function ModeImprove({ onNotify, onRefreshHistoryCount }: ModeImproveProps) {
+export function ModeImprove({ onNotify, onRefreshHistoryCount, allowFreeAi = false }: ModeImproveProps) {
   const [rawPrompt, setRawPrompt] = useState('');
   const [targetModel, setTargetModel] = useState<TargetModel>('GERAL');
   const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState<ImprovePromptResult | null>(null);
+  const [result, setResult] = useState<(ImprovePromptResult & { aiAssisted?: boolean }) | null>(null);
   const [copied, setCopied] = useState(false);
 
   const selectableTargetModels = useMemo(() => getSelectableTargetModels(), []);
@@ -46,10 +48,10 @@ export function ModeImprove({ onNotify, onRefreshHistoryCount }: ModeImproveProp
       const res = await fetch('/api/ai/simple-improve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rawPrompt, targetModel })
+        body: JSON.stringify({ rawPrompt, targetModel, allowFreeAi })
       });
 
-      let data: ImprovePromptResult;
+      let data: ImprovePromptResult & { aiAssisted?: boolean };
 
       if (res.ok) {
         data = await res.json();
@@ -173,7 +175,9 @@ export function ModeImprove({ onNotify, onRefreshHistoryCount }: ModeImproveProp
           <div className={`${panelSurface} space-y-4`}>
             <div className="flex items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
               <h3 className={fieldLabel}>O que mudei</h3>
-              <span className="text-xs text-zinc-500">{result.changes.length} ajustes</span>
+              <span className="text-xs text-zinc-500">
+                {result.changes.length} ajustes{result.aiAssisted ? ' · com IA gratuita' : ''}
+              </span>
             </div>
             <ul className="space-y-2.5">
               {result.changes.map((change, idx) => (

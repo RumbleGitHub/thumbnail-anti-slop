@@ -220,3 +220,15 @@ export const TEMPLATE_LEAK_TERMS = [
 
 // Positive slop vocabulary that should never be emitted as an instruction.
 export const POSITIVE_SLOP_TERMS = [/\b8k\b/i, /ultra[- ]detailed/i, /\bepic\b/i, /lens flare/i, /trending on artstation/i, /hyper[- ]?realistic/i, /cinematic lighting/i];
+
+// Positive (to-be-drawn) part of a prompt: drops AVOID sections and negated clauses.
+export function positiveOnly(prompt) {
+  let text = prompt.split(/NEGATIVE \/ STRICTLY AVOID:|^AVOID:|^NEGATIVE PROMPT:/m)[0];
+  text = text.replace(/\((?:no|without|zero)\b[^)]*\)/gi, ' ');
+  text = text.replace(/--no\s[^\n]*/gi, ' ');
+  return text
+    .split(/(?<=[.;!?\n])/)
+    .filter(s => !/^\s*(zero|do not|don't|no|not|never|avoid|without|absolutely no|strictly avoid)\b/i.test(s))
+    .join('')
+    .replace(/\b(?:no|without|zero|avoid(?:ing)?|never)\s[^,.;\n]*/gi, ' ');
+}

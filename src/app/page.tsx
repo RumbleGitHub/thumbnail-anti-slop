@@ -22,6 +22,31 @@ export default function Home() {
   const [showHistory, setShowHistory] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [aiConfigured, setAiConfigured] = useState(false);
+  // Free hosted AI (Cloudflare Workers AI): offered only when the server enables it; the creator can
+  // turn it off (remembered in this browser). Off = nothing but text leaves the browser.
+  const [freeAiAvailable, setFreeAiAvailable] = useState(false);
+  // An owner-paid vision provider (OpenAI/Gemini key) is configured on the server.
+  const [paidVision, setPaidVision] = useState(false);
+  const [freeAiAllowed, setFreeAiAllowed] = useState<boolean>(() => {
+    try {
+      return typeof window === 'undefined' || window.localStorage.getItem('tas-free-ai') !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const allowFreeAi = freeAiAvailable && freeAiAllowed;
+
+  const toggleFreeAi = () => {
+    setFreeAiAllowed(prev => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem('tas-free-ai', next ? 'on' : 'off');
+      } catch {
+        // Storage blocked: keep the choice for this session only.
+      }
+      return next;
+    });
+  };
 
   // Check server AI status on mount
   useEffect(() => {
@@ -31,6 +56,8 @@ export default function Home() {
         if (data && data.configured) {
           setAiConfigured(true);
         }
+        setFreeAiAvailable(Boolean(data?.freeAi?.enabled));
+        setPaidVision(data?.director?.provider === 'openai' || data?.director?.provider === 'gemini');
       })
       .catch(() => {
         setAiConfigured(false);
@@ -57,6 +84,7 @@ export default function Home() {
         onOpenHistory={() => setShowHistory(true)}
         historyCount={hydrated ? historyItems.length : 0}
         aiConfigured={aiConfigured}
+        freeAi={freeAiAvailable ? { allowed: freeAiAllowed, onToggle: toggleFreeAi } : undefined}
       />
 
       {/* 2. Main Work Area (Pure & Simple, Spacious Creative Canvas) */}
@@ -67,6 +95,7 @@ export default function Home() {
           <ModeCreate
             onNotify={handleNotify}
             onRefreshHistoryCount={refreshHistory}
+            allowFreeAi={allowFreeAi}
           />
         </div>
 
@@ -74,6 +103,7 @@ export default function Home() {
           <ModeImprove
             onNotify={handleNotify}
             onRefreshHistoryCount={refreshHistory}
+            allowFreeAi={allowFreeAi}
           />
         </div>
 
@@ -81,6 +111,8 @@ export default function Home() {
           <ModeAnalyze
             onNotify={handleNotify}
             onRefreshHistoryCount={refreshHistory}
+            allowFreeAi={allowFreeAi}
+            paidVision={paidVision}
           />
         </div>
       </main>
@@ -90,7 +122,7 @@ export default function Home() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3">
           <span className="font-semibold text-zinc-400">THUMBNAIL ANTI-SLOP</span>
           <span className="text-zinc-600 font-sans text-xs">Subtrair antes de decorar • Menos efeitos, mais decisões</span>
-          <span className="text-zinc-500">100% Privado & Local</span>
+          <span className="text-zinc-500">{allowFreeAi ? 'IA gratuita: Cloudflare, sem retenção' : '100% Privado & Local'}</span>
         </div>
       </footer>
 

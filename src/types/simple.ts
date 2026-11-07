@@ -785,6 +785,14 @@ export interface AnalyzeThumbnailSimpleResult {
   fixPrompt: string;
   /** True when no multimodal director inspected the image (title-based heuristic only). */
   isLocal?: boolean;
+  /**
+   * Who produced the analysis:
+   * - 'provider': paid key configured by the owner (OpenAI/Gemini director)
+   * - 'workers-ai': free hosted vision model (Cloudflare Workers AI) grounded on local measurements
+   * - 'local-pixels': browser measurements only (nothing uploaded, no AI)
+   * - 'title-only': no image data available (generic checklist)
+   */
+  analysisSource?: 'provider' | 'workers-ai' | 'local-pixels' | 'title-only';
 }
 
 export interface SimpleHistoryItem {

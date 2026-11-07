@@ -1,0 +1,59 @@
+{
+  "recordedAt": "2026-11-07",
+  "how": "LIVE calls to Cloudflare Workers AI (account on the Workers Free plan) through the dashboard session, POST /accounts/:id/ai/run/:model. Images sent as 768px JPEG data URIs (same as prepareImageForUpload). Real photos from Wikimedia Commons (PS2-Versions.jpg public domain; Feijoada_01.jpg CC BY-SA 3.0; Apple_iPhone_15_Pro.jpg CC BY-SA 4.0; Galaxy_S23.png CC BY-SA 4.0); synthetic thumbnails drawn on a canvas. Outputs below are verbatim except where 'note' says otherwise.",
+  "visionQuestion": "ANALYZE_QUESTION in src/lib/ai/free/freeFeatures.ts",
+  "visionCases": {
+    "ps2": { "kind": "real-photo", "expectSubject": "playstation|ps2|console", "expectText": null, "visibleLogos": true },
+    "feijoada": { "kind": "real-photo", "expectSubject": "food|feijoada|stew|beans|dish|meal", "expectText": null },
+    "iphone": { "kind": "real-photo", "expectSubject": "iphone|phone", "expectText": null },
+    "galaxy": { "kind": "real-render", "expectSubject": "phone|galaxy", "expectText": null },
+    "neonText": { "kind": "synthetic-neon", "expectSubject": "text|background", "expectText": "VALE A PENA?" },
+    "accent": { "kind": "synthetic-accent", "expectSubject": "text|background|rectangle", "expectText": "NÃO COMPRE" }
+  },
+  "vision": {
+    "@cf/meta/llama-4-scout-17b-16e-instruct": {
+      "ps2": { "ms": 2538, "neurons": 41.5, "promptTokens": 1580, "answer": "SUBJECT: Two black PlayStation 2 consoles and controller\nTEXT: NONE\nARTIFICIAL: NONE\nWORKS: Realistic shadows and product details are visually appealing" },
+      "feijoada": { "ms": 1805, "neurons": 16.2, "promptTokens": 565, "answer": "SUBJECT: Various traditional foods on a table\nTEXT: NONE\nARTIFICIAL: NONE\nWORKS: Composition showcases diverse food items appealingly" },
+      "iphone": { "ms": 2243, "neurons": 30.8, "promptTokens": 1145, "answer": "SUBJECT: Four iPhones in different colors side by side\nTEXT: NONE\nARTIFICIAL: NONE\nWORKS: Realistic product display with clear branding and details" },
+      "galaxy": { "ms": 1422, "neurons": 30.4, "promptTokens": 1145, "answer": "SUBJECT: Three smartphones with different colored outlines\nTEXT: NONE\nARTIFICIAL: NONE\nWORKS: Color outlines clearly distinguish the three phones" },
+      "neonText": { "ms": 1073, "neurons": 30.7, "answer": "SUBJECT: Text on colorful background\nTEXT: VALE A PENA\nARTIFICIAL: glow around text; NONE\nWORKS: Gradient background transitions smoothly", "note": "The trailing '?' of the TEXT line was removed by the extraction filter used to copy the output out of the browser, not necessarily by the model." },
+      "accent": { "ms": 834, "neurons": 30.4, "answer": "SUBJECT: Text on black and beige background\nTEXT: NÃO COMPRE\nARTIFICIAL: NONE\nWORKS: Simple and clear text display" }
+    },
+    "@cf/mistralai/mistral-small-3.1-24b-instruct": {
+      "ps2": { "ms": 1502, "neurons": 29.8, "promptTokens": 856, "answer": "SUBJECT: PlayStation 2 console and controller\nTEXT: SONY; Playstation 2; DUALSHOCK\nARTIFICIAL: NONE\nWORKS: The PlayStation 2 logo is clear and recognizable" },
+      "feijoada": { "ms": 1308, "neurons": 11.1, "promptTokens": 271, "answer": "SUBJECT: assorted food items in bowls on a table\nTEXT: NONE\nARTIFICIAL: unnatural color of rice; odd texture of meat\nWORKS: variety of food items are well-lit and clear" },
+      "iphone": { "ms": 1503, "neurons": 25.4, "promptTokens": 740, "answer": "SUBJECT: four iPhones lined up back-to-back\nTEXT: NONE\nARTIFICIAL: NONE\nWORKS: consistent lighting across all devices" },
+      "galaxy": { "ms": 1360, "neurons": 23.5, "promptTokens": 682, "answer": "SUBJECT: Three smartphones with black screens\nTEXT: NONE\nARTIFICIAL: warped product; uneven lighting\nWORKS: Consistent smartphone design outlines" },
+      "neonText": { "ms": 2264, "neurons": 20.9, "promptTokens": 595, "answer": "SUBJECT: Gradient background with white text\nTEXT: VALE A PENA?\nARTIFICIAL: NONE\nWORKS: The text is clear and easy to read" },
+      "accent": { "ms": 1333, "neurons": 20.9, "answer": "SUBJECT: Text and a blank rectangle on black background\nTEXT: NÃO COMPRE\nARTIFICIAL: NONE\nWORKS: High contrast between text and background" }
+    },
+    "@cf/moondream/moondream3.1-9B-A2B": {
+      "_all": { "answer": "", "note": "task=query over the REST API returned an empty answer for every image (result {} or answer '' with finish_reason 'length'), with and without reasoning/stream flags; 22.9 Neurons spent on a 30-token test." }
+    }
+  },
+  "visionRejected": {
+    "@cf/meta/llama-3.2-11b-vision-instruct": "Not called: first use requires accepting Meta's license ('agree' request), which needs the account owner's decision.",
+    "remoteUrls": "Llama 4 Scout rejects remote image URLs ('allowed domains: [none]'); Mistral returned 500 for them. Data URIs only."
+  },
+  "improveSystem": "IMPROVE_SYSTEM in src/lib/ai/free/freeFeatures.ts",
+  "improveCases": [
+    { "raw": "epic gaming thumbnail of a guy holding a ps5, shocked face, 8k, ultra detailed, neon glow, red arrow, text \"VALE A PENA?\"", "exactText": "VALE A PENA?" },
+    { "raw": "cinematic thumbnail of a girl cooking feijoada, volumetric god rays, hyper realistic, 8k, glowing steam, text \"RECEITA DA VÓ\"", "exactText": "RECEITA DA VÓ" },
+    { "raw": "iPhone 17 Pro vs Galaxy S26 Ultra, epic battle, lightning, fire particles, VS text, ultra detailed", "exactText": null },
+    { "raw": "youtuber screaming with mouth wide open pointing at a PS2, red circle, red arrow, neon purple background, 8k", "exactText": null }
+  ],
+  "improve": {
+    "@cf/meta/llama-3.1-8b-instruct-fp8-fast": [
+      { "ms": 945, "neurons": 3.9, "text": "{\"changes\": [\"removed clichéd '8k' and 'ultra detailed'\", \"removed neon glow\", \"removed shocked face\", \"removed red arrow\"], \"improvedPrompt\": \"a young man sitting in a cozy living room, holding a PS5 console and looking at it with a curious expression, natural light coming from a window behind him, text \\\"VALE A PENA?\\\" on the screen of the console\"}" },
+      { "ms": 871, "neurons": 3.8, "text": "{\"changes\": [\"removed clichés 'volumetric god rays', 'hyper realistic', '8k', 'glowing steam'\", \"kept the text 'RECEITA DA VÓ' exactly\"], \"improvedPrompt\": \"photographic thumbnail of a girl cooking feijoada in a warm kitchen setting, natural light illuminating her face and the cooking process, text 'RECEITA DA VÓ'\"}" },
+      { "ms": 668, "neurons": 3.2, "text": "{\"changes\": [\"removed clichéd 'epic battle' and 'ultra detailed'\", \"removed 'lightning' and 'fire particles'\", \"removed 'VS text'\"], \"improvedPrompt\": \"A side-by-side comparison of the iPhone 17 Pro and Galaxy S26 Ultra in a natural outdoor setting with motivated sunlight.\"}" },
+      { "ms": 1008, "neurons": 4.3, "text": "{\n  \"changes\": [\n    \"Removed clichéd neon purple background\",\n    \"Removed clichéd 8k resolution\",\n    \"Removed clichéd red circle and arrow\",\n    \"Removed shocked open mouth expression\",\n    \"Focused on a natural and motivated expression\"\n  ],\n  \"improvedPrompt\": \"A close-up of a YouTuber's face, looking surprised and excited, with a PS2 console in the background, shot in a natural and well-lit setting\"\n}" }
+    ],
+    "@cf/meta/llama-4-scout-17b-16e-instruct": [
+      { "ms": 3144, "neurons": 13.1, "text": "```json\n{\n  \"changes\": [\n    \"Removido 'epic gaming thumbnail' para uma descrição mais objetiva\",\n    \"Substituído 'shocked face' por uma expressão natural\",\n    \"Removidos '8k', 'ultra detailed', 'neon glow' e 'red arrow' para uma imagem mais realista\"\n  ],\n  \"improvedPrompt\": \"A man naturally holding a PS5 with a curious expression, in a well-lit setting, text \\\"VALE A PENA?\\\"\"\n}\n```" },
+      { "ms": 2315, "neurons": 12.7, "text": "{\"changes\": [\n    \"Removido 'cinematic' e 'volumetric god rays' para uma aparência mais natural\",\n    \"Removido 'hyper realistic' e '8k' para evitar clichês de qualidade\",\n    \"Removido 'glowing steam' para uma representação mais realista\"\n], \"improvedPrompt\": \"Photograph of a girl cooking feijoada, with natural light highlighting the steam rising from the dish, and the text \\\"RECEITA DA VÓ\\\"\"}" },
+      { "ms": 3044, "neurons": 12.9, "text": "{\"changes\": [\n    \"Removido 'epic battle', 'lightning', 'fire particles' para uma imagem mais simples e focada nos produtos\",\n    \"Removido 'ultra detailed' para priorizar a qualidade fotográfica natural\",\n    \"Mantido o confronto entre produtos com 'VS text' para destacar a comparação\"\n], \"improvedPrompt\": \"iPhone 17 Pro vs Galaxy S26 Ultra, VS text, lado a lado em uma mesa branca com luz natural, mostrando os dois produtos de forma clara e distinta\"}" },
+      { "ms": 4197, "neurons": 13.6, "text": "{\"changes\": [\n  \"Removido 'screaming with mouth wide open' para uma expressão mais natural e substituído por uma ação mais contida\",\n  \"Removido 'red circle', 'red arrow' e 'neon purple background' que são clichês e não acrescentam significado à imagem\",\n  \"Removido '8k' que é uma especificação desnecessária para uma descrição de imagem\"\n], \n\"improvedPrompt\": \"A youtuber points at a PS2 with a natural expression, in a setting with motivated natural light.\"}" }
+    ]
+  }
+}

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { improvePrompt, resolveOutputMetadata } from '@/lib/simpleEngine/engine';
 import { getVisualDirector } from '@/lib/ai/orchestrator';
 import { type ImprovePromptInput, normalizeTargetModel } from '@/types/simple';
+import { improveWithFreeText } from '@/lib/ai/free/freeFeatures';
+import { isFreeAiEnabled } from '@/lib/ai/free/workersAi';
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,7 +16,8 @@ export async function POST(req: NextRequest) {
 
     const { director, providerName: dirProvider } = getVisualDirector();
 
-    if (director && director.isConfigured()) {
+    // Owner-paid text providers only (the free layer is handled below).
+    if (director && director.isConfigured() && (dirProvider === 'openai' || dirProvider === 'gemini')) {
       try {
         const apiKey = dirProvider === 'openai' ? process.env.OPENAI_API_KEY! : process.env.GEMINI_API_KEY!;
         const systemPrompt = `You are an elite photographic prompt doctor and anti-slop purifier for image models (Midjourney, FLUX, DALL-E).
@@ -103,6 +106,15 @@ Output strictly JSON with:
         }
       } catch (err) {
         console.warn('AI improve call failed, using local engine:', err);
+      }
+    }
+
+    // Free hosted text model (Cloudflare Workers AI) + deterministic engine pass.
+    if (rawBody.allowFreeAi === true && isFreeAiEnabled()) {
+      const free = await improveWithFreeText(body);
+      if (free) {
+        const { neurons, latencyMs, aiAssisted, ...result } = free;
+        return NextResponse.json({ ...result, isLocal: false, aiAssisted, usage: { provider: 'workers-ai', neurons, latencyMs } });
       }
     }
 

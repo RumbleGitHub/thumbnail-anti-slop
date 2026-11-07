@@ -32,6 +32,7 @@ import {
 } from '@/types/simple';
 import { generateSimpleThumbnail } from '@/lib/simpleEngine/engine';
 import { saveSimpleHistoryItem } from '@/lib/simpleEngine/history';
+import { prepareImageForUpload } from '@/lib/client/imageTools';
 import {
   focusRing,
   fieldLabel,
@@ -95,6 +96,8 @@ const RESERVED_POSITIONS: { id: ReservedSpacePosition; label: string }[] = [
 interface ModeCreateProps {
   onNotify: (msg: string) => void;
   onRefreshHistoryCount: () => void;
+  /** Free hosted vision available and allowed: product/scene/target references get a quick check. */
+  allowFreeAi?: boolean;
 }
 
 function readAsDataUrl(file: File): Promise<string> {
@@ -106,7 +109,7 @@ function readAsDataUrl(file: File): Promise<string> {
   });
 }
 
-export function ModeCreate({ onNotify, onRefreshHistoryCount }: ModeCreateProps) {
+export function ModeCreate({ onNotify, onRefreshHistoryCount, allowFreeAi = false }: ModeCreateProps) {
   // Main form inputs
   const [videoTitle, setVideoTitle] = useState('');
   const [ideaDescription, setIdeaDescription] = useState('');
@@ -368,10 +371,18 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount }: ModeCreateProps)
         approachIndex: currentApproach
       };
 
+      // With free AI on, product/scene/target images go to the free vision model: send smaller,
+      // metadata-free copies. Face photos (PESSOA) are never analyzed by it.
+      const apiReferences = allowFreeAi
+        ? await Promise.all(references.map(async r =>
+            r.role === 'PRODUTO' || r.role === 'CENÁRIO' || r.role === 'IMAGEM_ALVO'
+              ? { ...r, url: await prepareImageForUpload(r.url) }
+              : r))
+        : references;
       const res = await fetch('/api/ai/simple-create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ ...payload, references: apiReferences, allowFreeAi })
       });
 
       let genResult: CreateThumbnailResult;

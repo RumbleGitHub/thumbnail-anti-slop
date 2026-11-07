@@ -8,6 +8,8 @@ import type {
 import { OpenAIDirector } from './director/openaiDirector.ts';
 import { GeminiDirector } from './director/geminiDirector.ts';
 import { GeminiAuditor } from './auditor/geminiAuditor.ts';
+import { WorkersAIDirector } from './director/workersAiDirector.ts';
+import { freeAiStatus, WORKERS_AI_MODELS } from './free/workersAi.ts';
 import type {
   CreateThumbnailInput,
   ScenePlan,
@@ -48,8 +50,35 @@ export function mapReferencesToDirectorInput(refs: SimpleReference[]): DirectorR
   }));
 }
 
-export function getVisualDirector(): { director: VisualDirector | null; providerName: 'openai' | 'gemini' | 'local' } {
-  const providerSetting = (process.env.AI_DIRECTOR_PROVIDER?.trim().toLowerCase() || 'auto') as 'auto' | 'openai' | 'gemini' | 'local';
+/**
+ * Gemini free-tier keys: Google may use inputs to improve its products and human reviewers may read
+ * them (Gemini API terms, unpaid services). With GEMINI_FREE_TIER=true, face photos (PESSOA) are
+ * never sent; the rest of the reference understanding still works.
+ */
+export function isGeminiFreeTier(): boolean {
+  return process.env.GEMINI_FREE_TIER?.trim().toLowerCase() === 'true';
+}
+
+function withoutFacePhotos(director: VisualDirector): VisualDirector {
+  return {
+    name: director.name,
+    isConfigured: () => director.isConfigured(),
+    analyze: input => director.analyze({ ...input, references: input.references.filter(r => r.role !== 'PESSOA') }),
+  };
+}
+
+export type DirectorProviderName = 'openai' | 'gemini' | 'workers-ai' | 'local';
+
+export function getVisualDirector(): { director: VisualDirector | null; providerName: DirectorProviderName } {
+  const providerSetting = (process.env.AI_DIRECTOR_PROVIDER?.trim().toLowerCase() || 'auto') as 'auto' | DirectorProviderName;
+  const gemini = () => {
+    const d = new GeminiDirector();
+    return d.isConfigured() ? (isGeminiFreeTier() ? withoutFacePhotos(d) : d) : null;
+  };
+  const workersAi = () => {
+    const d = new WorkersAIDirector();
+    return d.isConfigured() ? d : null;
+  };
 
   if (providerSetting === 'local') {
     return { director: null, providerName: 'local' };
@@ -62,20 +91,29 @@ export function getVisualDirector(): { director: VisualDirector | null; provider
   }
 
   if (providerSetting === 'gemini') {
-    const d = new GeminiDirector();
-    if (d.isConfigured()) return { director: d, providerName: 'gemini' };
-    return { director: null, providerName: 'local' };
+    const d = gemini();
+    return d ? { director: d, providerName: 'gemini' } : { director: null, providerName: 'local' };
   }
 
-  // 'auto' cascade: Prefer OpenAI if configured; then Gemini; then Local
+  if (providerSetting === 'workers-ai') {
+    const d = workersAi();
+    return d ? { director: d, providerName: 'workers-ai' } : { director: null, providerName: 'local' };
+  }
+
+  // 'auto' cascade: owner-paid keys first (OpenAI, then Gemini), then the free Workers AI layer, then Local.
   const openAiDir = new OpenAIDirector();
   if (openAiDir.isConfigured()) {
     return { director: openAiDir, providerName: 'openai' };
   }
 
-  const geminiDir = new GeminiDirector();
-  if (geminiDir.isConfigured()) {
+  const geminiDir = gemini();
+  if (geminiDir) {
     return { director: geminiDir, providerName: 'gemini' };
+  }
+
+  const freeDir = workersAi();
+  if (freeDir) {
+    return { director: freeDir, providerName: 'workers-ai' };
   }
 
   return { director: null, providerName: 'local' };
@@ -112,13 +150,14 @@ export function getSystemAIStatus(): SystemAIStatus {
       configured: auditorConfigured,
       provider: auditorConfigured ? 'gemini' : 'none'
     },
+    freeAi: freeAiStatus(),
     // Backwards compatibility fields
     configured: directorConfigured || auditorConfigured,
     provider: directorConfigured
-      ? (dirProvider === 'openai' ? 'OpenAI Multimodal Director' : 'Gemini Director')
+      ? (dirProvider === 'openai' ? 'OpenAI Multimodal Director' : dirProvider === 'workers-ai' ? 'Cloudflare Workers AI (gratuito)' : 'Gemini Director')
       : 'Motor Local Determinístico',
     model: directorConfigured
-      ? (dirProvider === 'openai' ? (process.env.OPENAI_MODEL || 'gpt-4o') : (process.env.GEMINI_MODEL || 'gemini-2.5-flash'))
+      ? (dirProvider === 'openai' ? (process.env.OPENAI_MODEL || 'gpt-4o') : dirProvider === 'workers-ai' ? WORKERS_AI_MODELS.vision : (process.env.GEMINI_MODEL || 'gemini-2.5-flash'))
       : 'none',
     supportsVision: directorConfigured || auditorConfigured
   };

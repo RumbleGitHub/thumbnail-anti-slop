@@ -258,8 +258,10 @@ export interface SystemAIStatus {
   localEngine: true;
   director: {
     configured: boolean;
-    provider: 'openai' | 'gemini' | 'local' | 'none';
+    provider: 'openai' | 'gemini' | 'workers-ai' | 'local' | 'none';
   };
+  /** Zero-spend hosted layer (Cloudflare Workers AI). */
+  freeAi?: { enabled: boolean; provider: 'workers-ai' | 'none'; reason?: string; remainingNeuronsEstimate?: number };
   auditor: {
     configured: boolean;
     provider: 'gemini' | 'none';

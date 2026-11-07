@@ -2979,4 +2979,156 @@ console.log('\n39. Testando comparações com 2+ produtos no Spatial Hierarchy P
   }
   console.log('  ✓ TEST 39.3: Os 5 adaptadores tratam os dois produtos como distintos e identificados.');
 }
+
+// 40. Camada de IA gratuita (SIMULADA: binding Workers AI falso, nenhuma chamada de rede) + análise local de pixels
+console.log('\n40. Testando IA gratuita (Workers AI simulado): limites, privacidade, autoridade e fallback...');
+{
+  const wai = await import('../src/lib/ai/free/workersAi.ts');
+  const { analyzeWithFreeVision, improveWithFreeText, parseLabeledAnswer } = await import('../src/lib/ai/free/freeFeatures.ts');
+  const { WorkersAIDirector } = await import('../src/lib/ai/director/workersAiDirector.ts');
+  const { getVisualDirector, reconcileDirectorWithLocalRules, mapReferencesToDirectorInput } = await import('../src/lib/ai/orchestrator.ts');
+  const { computeImageMetrics, analyzeFromMetrics } = await import('../src/lib/simpleEngine/pixelAnalysis.ts');
+  const { buildScenePlan } = await import('../src/lib/simpleEngine/engine.ts');
+
+  const IMG = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+  // Workers AI chat shape (choices[0].message.content), as returned live by Llama 4 Scout.
+  const chat = content => ({ choices: [{ message: { content } }], usage: { prompt_tokens: 600, completion_tokens: 60, neurons: 19.4 } });
+  const fakeAi = (answer, calls = []) => ({ async run(model, inputs) { calls.push({ model, inputs }); const a = typeof answer === 'function' ? answer(model, inputs) : answer; return typeof a === 'string' ? chat(a) : a; } });
+  const questionOf = inputs => inputs.messages?.[0]?.content?.find?.(c => c.type === 'text')?.text || '';
+  const imageOf = inputs => inputs.messages?.[0]?.content?.find?.(c => c.type === 'image_url')?.image_url?.url || '';
+  const savedEnv = { ...process.env };
+  const restoreEnv = () => { for (const k of Object.keys(process.env)) if (!(k in savedEnv)) delete process.env[k]; Object.assign(process.env, savedEnv); };
+
+  // 40.1 Off by default; limits enforced before any call.
+  delete process.env.FREE_AI_PROVIDER;
+  wai.setWorkersAiBindingForTests(fakeAi('x'));
+  assert.equal((await wai.askImage(IMG, 'q')).ok, false, 'Sem FREE_AI_PROVIDER a camada fica desligada');
+  process.env.FREE_AI_PROVIDER = 'workers-ai';
+  process.env.FREE_AI_MAX_REQUESTS_PER_MINUTE = '2';
+  const calls = [];
+  wai.setWorkersAiBindingForTests(fakeAi('ok', calls));
+  const t0 = Date.UTC(2026, 10, 7, 12);
+  const r1 = await wai.runWorkersAi(wai.WORKERS_AI_MODELS.vision, { task: 'query' }, { inputTokensEstimate: 1200, maxOutputTokens: 100, now: t0 });
+  const r2 = await wai.runWorkersAi(wai.WORKERS_AI_MODELS.vision, { task: 'query' }, { inputTokensEstimate: 1200, maxOutputTokens: 100, now: t0 + 1000 });
+  const r3 = await wai.runWorkersAi(wai.WORKERS_AI_MODELS.vision, { task: 'query' }, { inputTokensEstimate: 1200, maxOutputTokens: 100, now: t0 + 2000 });
+  assert.ok(r1.ok && r2.ok && !r3.ok && r3.reason === 'throttled', 'Throttle por minuto');
+  assert.equal(calls.length, 2, 'Pedido barrado não chega ao modelo');
+  assert.equal(calls[0].inputs.max_tokens, 100, 'max_tokens sempre enviado');
+  // Daily budget: blocks before calling; never above the free allocation even if configured higher.
+  process.env.FREE_AI_MAX_REQUESTS_PER_MINUTE = '100';
+  process.env.FREE_AI_DAILY_NEURONS = '50000';
+  wai.setWorkersAiBindingForTests(fakeAi('ok', calls));
+  assert.equal(wai.freeAiStatus(t0).remainingNeuronsEstimate, 9500, 'Teto nunca acima de 9.500 (abaixo dos 10.000 grátis)');
+  process.env.FREE_AI_DAILY_NEURONS = '60';
+  wai.setWorkersAiBindingForTests(fakeAi('ok', calls));
+  const before = calls.length;
+  const big = await wai.runWorkersAi(wai.WORKERS_AI_MODELS.vision, {}, { inputTokensEstimate: 1200, maxOutputTokens: 400, now: t0 });
+  assert.ok(!big.ok && big.reason === 'daily-budget-exhausted' && calls.length === before, 'Orçamento diário barra antes da chamada');
+  // Allocation exhausted on the platform: stop for the rest of the UTC day; new day resets.
+  process.env.FREE_AI_DAILY_NEURONS = '8000';
+  wai.setWorkersAiBindingForTests({ async run() { throw new Error('3036: Account limited: daily free neurons exceeded'); } });
+  const quota = await wai.runWorkersAi(wai.WORKERS_AI_MODELS.text, {}, { inputTokensEstimate: 100, maxOutputTokens: 100, now: t0 });
+  assert.ok(!quota.ok, 'Erro de cota vira fallback');
+  assert.equal(wai.freeAiStatus(t0).remainingNeuronsEstimate, 0, 'Cota esgotada trava o resto do dia');
+  wai.setWorkersAiBindingForTests({ async run() { return new Promise(() => {}); } });
+  const slow = await wai.runWorkersAi(wai.WORKERS_AI_MODELS.text, {}, { inputTokensEstimate: 10, maxOutputTokens: 10, timeoutMs: 30, now: t0 });
+  assert.equal(slow.reason, 'timeout', 'Timeout vira fallback');
+  wai.setWorkersAiBindingForTests(null);
+  assert.equal((await wai.runWorkersAi(wai.WORKERS_AI_MODELS.text, {}, { inputTokensEstimate: 10, maxOutputTokens: 10 })).reason, 'no-binding');
+  console.log('  ✓ TEST 40.1: Desligada por padrão; throttle, teto diário (≤ 9.500), trava ao esgotar a cota, timeout e ausência de binding viram fallback.');
+
+  // 40.2 Local pixel analysis on synthetic images (real computation, no AI).
+  const img = (w, h, fn) => { const d = new Uint8ClampedArray(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const [r, g, b] = fn(x, y); const i = (y * w + x) * 4; d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255; } return computeImageMetrics(d, w, h); };
+  const neon = analyzeFromMetrics(img(160, 90, (x, y) => ((x + y) % 7 < 2 ? [20, 230, 240] : [190, 30, 230])));
+  assert.match(neon.topProblem, /neon/i, 'Imagem roxo/ciano: problema principal = neon');
+  const flat = analyzeFromMetrics(img(160, 90, () => [128, 128, 128]));
+  assert.ok(flat.aiLooking.some(t => /Contraste baixo/.test(t)), 'Imagem cinza: contraste baixo');
+  const subject = analyzeFromMetrics(img(160, 90, (x, y) => {
+    const inC = x > 50 && x < 110 && y > 20 && y < 70;
+    return inC ? ((x * 7 + y * 3) % 11 < 5 ? [240, 200, 160] : [40, 30, 25]) : [18, 22, 30];
+  }));
+  assert.ok(subject.functioning.some(t => /Ponto focal claro/.test(t)), 'Assunto central detalhado: ponto focal claro');
+  assert.match(subject.fixPrompt, /PRESERVE:/);
+  // Product on a plain white studio background (seen with a real PS2 photo): not "HDR".
+  const studio = analyzeFromMetrics(img(160, 90, (x, y) => (x > 60 && x < 100 && y > 20 && y < 70 ? ((x + y) % 5 < 2 ? [30, 30, 35] : [70, 70, 80]) : [255, 255, 255])));
+  assert.ok(!studio.aiLooking.some(t => /HDR/.test(t)), 'Fundo branco liso não é chamado de HDR');
+  assert.ok(studio.aiLooking.some(t => /Fundo branco liso/.test(t)), 'Fundo branco liso é descrito corretamente');
+  console.log('  ✓ TEST 40.2: Análise local de pixels detecta neon, contraste baixo e ponto focal em imagens sintéticas.');
+
+  // 40.3 ANALYZE with the free vision model: parsed, merged with measurements, garbage rejected.
+  assert.deepEqual(parseLabeledAnswer('SUBJECT: a man holding a PS5\nTEXT: NONE\nARTIFICIAL: plastic skin; extra finger\nWORKS: strong silhouette'), { SUBJECT: 'a man holding a PS5', TEXT: 'NONE', ARTIFICIAL: 'plastic skin; extra finger', WORKS: 'strong silhouette' });
+  wai.setWorkersAiBindingForTests(fakeAi('SUBJECT: a man holding a PS5\nTEXT: VALE A PENA\nARTIFICIAL: plastic skin; extra finger on the left hand\nWORKS: strong silhouette'));
+  const metrics = img(160, 90, (x, y) => ((x + y) % 7 < 2 ? [20, 230, 240] : [190, 30, 230]));
+  const vis = await analyzeWithFreeVision(IMG, metrics);
+  assert.equal(vis.analysisSource, 'workers-ai');
+  assert.ok(vis.aiLooking.some(t => /plastic skin/.test(t)) && vis.functioning.some(t => /VALE A PENA/.test(t)), 'Observações da IA + texto lido');
+  assert.match(vis.topProblem, /neon/i, 'Medição forte (neon) continua sendo o problema principal');
+  assert.match(vis.fixPrompt, /PRESERVE:\n1\. The main subject \(a man holding a PS5\)/);
+  wai.setWorkersAiBindingForTests(fakeAi('I cannot help with that.'));
+  assert.equal(await analyzeWithFreeVision(IMG, metrics), null, 'Resposta fora do formato = fallback local');
+  assert.equal(await analyzeWithFreeVision('https://example.com/a.jpg', metrics), null, 'Só data URL de imagem é enviada');
+  console.log('  ✓ TEST 40.3: ANALISAR com IA grátis junta observações visuais às medições; resposta inválida cai para o local.');
+
+  // 40.4 IMPROVE: exact quoted text is sacred; engine still applies anti-slop/format.
+  wai.setWorkersAiBindingForTests(fakeAi({ response: null, choices: [{ message: { content: '```json\n{"changes":["Removi o neon"],"improvedPrompt":"Photographic thumbnail of a man holding a PS5, natural window light, text \\"VALE A PENA?\\""}\n```' } }] }));
+  const ok = await improveWithFreeText({ rawPrompt: 'epic thumbnail guy holding ps5, neon glow, 8k, text "VALE A PENA?"', targetModel: 'GERAL' });
+  assert.ok(ok && ok.improvedPrompt.includes('VALE A PENA?') && ok.changes[0].startsWith('IA: '), 'Reescrita aceita preserva o texto');
+  wai.setWorkersAiBindingForTests(fakeAi('{"changes":["x"],"improvedPrompt":"Photographic thumbnail of a man holding a PS5 with the text IS IT WORTH IT"}'));
+  assert.equal(await improveWithFreeText({ rawPrompt: 'guy holding ps5, text "VALE A PENA?"', targetModel: 'GERAL' }), null, 'Texto traduzido/perdido = reescrita descartada');
+  wai.setWorkersAiBindingForTests(fakeAi('not json'));
+  // Invented domestic setting (seen live with the 8B model) is rejected too.
+  wai.setWorkersAiBindingForTests(fakeAi('{"changes":["x"],"improvedPrompt":"A young man sitting in a cozy living room holding a PS5, natural window light"}'));
+  assert.equal(await improveWithFreeText({ rawPrompt: 'guy holding ps5, neon glow, 8k', targetModel: 'GERAL' }), null, 'Cenário doméstico inventado = descartado');
+  assert.equal(await improveWithFreeText({ rawPrompt: 'guy holding ps5 neon', targetModel: 'GERAL' }), null);
+  console.log('  ✓ TEST 40.4: MELHORAR com IA grátis descarta reescritas que perdem o texto exato; JSON inválido = motor local.');
+
+  // 40.5 CREATE director: no face photos, role-limited facts, never decisive.
+  const sent = [];
+  wai.setWorkersAiBindingForTests(fakeAi((model, inputs) => {
+    sent.push(imageOf(inputs));
+    const q = questionOf(inputs);
+    return /PRODUCT/.test(q) ? 'PRODUCT: Sony DualSense controller' : /PLACE/.test(q) ? 'PLACE: small home office' : 'PROPS: an old map\nCLOTHING: leather armor\nHEAD: turned left';
+  }));
+  const refs = [
+    { id: 'p', name: 'rosto', role: 'PESSOA', url: 'data:image/jpeg;base64,UEVTU09BUElYRUxT' },
+    { id: 't', name: 'alvo', role: 'IMAGEM_ALVO', url: 'data:image/jpeg;base64,TARGET', isTarget: true },
+    { id: 'c', name: 'quarto', role: 'CENÁRIO', scenarioMode: 'REFERENCIA_AMBIENTE', url: 'data:image/jpeg;base64,MOOD' },
+    { id: 'd', name: 'controle', role: 'PRODUTO', url: 'data:image/jpeg;base64,PRODUCT' },
+  ];
+  const dirResult = await new WorkersAIDirector().analyze({ userIdea: 'Coloque meu rosto no personagem', references: mapReferencesToDirectorInput(refs), taskType: 'IDENTITY_TRANSFER' });
+  assert.ok(!sent.some(u => /UEVTU09BUElYRUxT|MOOD/.test(u)), 'Foto de rosto e cenário "só atmosfera" nunca são enviados');
+  assert.deepEqual(dirResult.visualFacts.map(f => f.category).sort(), ['CLOTHING_ARMOR', 'HEAD_ORIENTATION', 'PRODUCT_HARDWARE', 'PROPS']);
+  assert.ok(dirResult.visualFacts.every(f => f.confidence === 0.65) && dirResult.confidence === 0.5);
+  assert.match(dirResult.directorWarnings.join(' '), /Sony DualSense controller/);
+  const input = { videoTitle: 'Virei o protagonista', ideaDescription: 'Coloque meu rosto no personagem da imagem alvo', references: refs, targetModel: 'GERAL' };
+  const local = buildScenePlan(input);
+  const reconciled = reconcileDirectorWithLocalRules({ ...dirResult, taskType: 'CREATE_NEW_SCENE', confidence: 0.79 }, local, input);
+  assert.equal(reconciled.taskType, local.taskType, 'IA grátis nunca muda o tipo de tarefa');
+  assert.equal(reconciled.faceOwner, local.faceOwner, 'Rosto continua com a regra local');
+  assert.ok(reconciled.preserve.some(p => /leather armor/.test(p)), 'Fatos da imagem-alvo entram no PRESERVE');
+  console.log('  ✓ TEST 40.5: Diretor grátis não envia rosto, só descreve papéis permitidos e nunca muda autoria ou tarefa.');
+
+  // 40.6 Provider cascade and Gemini free-tier privacy.
+  delete process.env.OPENAI_API_KEY; delete process.env.GEMINI_API_KEY; delete process.env.AI_DIRECTOR_PROVIDER;
+  assert.equal(getVisualDirector().providerName, 'workers-ai', 'Sem chaves pagas: cascata usa Workers AI');
+  delete process.env.FREE_AI_PROVIDER;
+  assert.equal(getVisualDirector().providerName, 'local', 'Sem nada habilitado: motor local');
+  process.env.GEMINI_API_KEY = 'test-key-not-real';
+  process.env.GEMINI_FREE_TIER = 'true';
+  const bodies = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => { bodies.push(String(init?.body || '')); return new Response('{}', { status: 500 }); };
+  try {
+    const { director } = getVisualDirector();
+    await director.analyze({ userIdea: 'x', references: mapReferencesToDirectorInput(refs) }).catch(() => null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.ok(bodies.length > 0 && !bodies.some(b => b.includes('UEVTU09BUElYRUxT')), 'Gemini gratuito nunca recebe a foto de rosto');
+  assert.ok(bodies.some(b => b.includes('PRODUCT')), 'Demais referências continuam sendo enviadas');
+  console.log('  ✓ TEST 40.6: Cascata pago → Workers AI → local; chave Gemini gratuita nunca recebe fotos de rosto.');
+
+  wai.setWorkersAiBindingForTests(undefined);
+  restoreEnv();
+}
 console.log('\n✅ TODOS OS TESTES PASSARAM COM SUCESSO! VALIDAÇÃO CONCLUÍDA.');

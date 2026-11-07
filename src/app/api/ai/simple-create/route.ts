@@ -42,7 +42,9 @@ export async function POST(req: NextRequest) {
     let directorLatencyMs: number | undefined;
 
     const hasImages = (body.references || []).length > 0;
-    const shouldInvokeDirector = Boolean(director && director.isConfigured() && hasImages);
+    // The free Workers AI director only runs when the creator allowed free AI for this request.
+    const freeAllowed = dirProvider !== 'workers-ai' || (body as { allowFreeAi?: boolean }).allowFreeAi === true;
+    const shouldInvokeDirector = Boolean(director && director.isConfigured() && hasImages && freeAllowed);
 
     if (shouldInvokeDirector && director) {
       const dirStart = Date.now();
@@ -159,7 +161,10 @@ export async function POST(req: NextRequest) {
       },
       outputMetadata: engineResult.outputMetadata,
       targetModel: engineResult.targetModel,
-      modelNotes: engineResult.modelNotes,
+      // Free reference checks ("product looks like: ...") are shown with the other usage notes.
+      modelNotes: dirProvider === 'workers-ai' && directorResult?.directorWarnings?.length
+        ? [...(engineResult.modelNotes || []), ...directorResult.directorWarnings]
+        : engineResult.modelNotes,
       // Development debug data (Section 31 & Complementary Trace)
       ...(process.env.NODE_ENV !== 'production' || req.headers.get('x-debug-trace') === 'true'
         ? {

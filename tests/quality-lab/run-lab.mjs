@@ -11,7 +11,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { GOLDEN_CASES, LAB_MODELS, TEMPLATE_LEAK_TERMS, POSITIVE_SLOP_TERMS } from './golden-cases.mjs';
+import { GOLDEN_CASES, LAB_MODELS, TEMPLATE_LEAK_TERMS, POSITIVE_SLOP_TERMS, positiveOnly } from './golden-cases.mjs';
+export { positiveOnly };
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..', '..');
@@ -33,16 +34,6 @@ const BASE_INPUT = {
 
 // Removes negated instructions so "positive" checks only see what the model is
 // asked to DRAW. Conservative: anything negated is dropped.
-export function positiveOnly(prompt) {
-  let text = prompt.split(/NEGATIVE \/ STRICTLY AVOID:|^AVOID:|^NEGATIVE PROMPT:/m)[0];
-  text = text.replace(/\((?:no|without|zero)\b[^)]*\)/gi, ' ');
-  text = text.replace(/--no\s[^\n]*/gi, ' ');
-  return text
-    .split(/(?<=[.;!?\n])/)
-    .filter(s => !/^\s*(zero|do not|don't|no|not|never|avoid|without|absolutely no|strictly avoid)\b/i.test(s))
-    .join('')
-    .replace(/\b(?:no|without|zero|avoid(?:ing)?|never)\s[^,.;\n]*/gi, ' ');
-}
 
 const test = (pattern, text) => (pattern instanceof RegExp ? pattern.test(text) : text.includes(pattern));
 const label = pattern => (pattern instanceof RegExp ? pattern.source : pattern);

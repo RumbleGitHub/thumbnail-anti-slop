@@ -14,15 +14,28 @@ import {
 } from 'lucide-react';
 import { AnalyzeThumbnailSimpleResult } from '@/types/simple';
 import { analyzeThumbnailLocally } from '@/lib/simpleEngine/engine';
+import { analyzeFromMetrics } from '@/lib/simpleEngine/pixelAnalysis';
+import { measureImage, prepareImageForUpload } from '@/lib/client/imageTools';
 import { saveSimpleHistoryItem } from '@/lib/simpleEngine/history';
 import { focusRing, fieldLabel, subLabel, fieldSurface, smallField, panelSurface, secondaryButton, secondaryIdle } from './ui';
 
 interface ModeAnalyzeProps {
   onNotify: (msg: string) => void;
   onRefreshHistoryCount: () => void;
+  /** Free hosted vision is available on the server and the creator has not turned it off. */
+  allowFreeAi?: boolean;
+  /** An owner-paid vision provider is configured on the server. */
+  paidVision?: boolean;
 }
 
-export function ModeAnalyze({ onNotify, onRefreshHistoryCount }: ModeAnalyzeProps) {
+const SOURCE_LABEL: Record<NonNullable<AnalyzeThumbnailSimpleResult['analysisSource']>, string> = {
+  provider: 'Analisada pela IA configurada no servidor.',
+  'workers-ai': 'Analisada por IA gratuita (Cloudflare Workers AI, sem retenção) + medições locais da imagem.',
+  'local-pixels': 'Medições locais da imagem (contraste, exposição, cor, poluição visual, foco). Sem IA; nada foi enviado.',
+  'title-only': '',
+};
+
+export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowFreeAi = false, paidVision = false }: ModeAnalyzeProps) {
   const [image, setImage] = useState<string | null>(null);
   const [videoTitle, setVideoTitle] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -59,19 +72,32 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount }: ModeAnalyzeProp
     inFlightRef.current = true;
     setIsLoading(true);
 
-    try {
-      const res = await fetch('/api/ai/simple-analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image, videoTitle })
-      });
+    // Always measured locally first: free, private, and real pixel evidence.
+    const metrics = await measureImage(image);
 
+    try {
       let data: AnalyzeThumbnailSimpleResult;
 
-      if (res.ok) {
-        data = await res.json();
+      if (!allowFreeAi && !paidVision) {
+        // Nothing to gain from uploading: analyze entirely in the browser.
+        data = metrics
+          ? { ...analyzeFromMetrics(metrics), analysisSource: 'local-pixels' }
+          : { ...analyzeThumbnailLocally(videoTitle), isLocal: true, analysisSource: 'title-only' };
       } else {
-        data = { ...analyzeThumbnailLocally(videoTitle), isLocal: true };
+        // Smaller re-encoded copy (no EXIF/GPS metadata) for the server and any AI provider.
+        const uploadImage = await prepareImageForUpload(image);
+        const res = await fetch('/api/ai/simple-analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: uploadImage, videoTitle, metrics, allowFreeAi })
+        });
+        if (res.ok) {
+          data = await res.json();
+        } else {
+          data = metrics
+            ? { ...analyzeFromMetrics(metrics), analysisSource: 'local-pixels' }
+            : { ...analyzeThumbnailLocally(videoTitle), isLocal: true, analysisSource: 'title-only' };
+        }
       }
 
       setResult(data);
@@ -84,11 +110,19 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount }: ModeAnalyzeProp
       });
       onRefreshHistoryCount();
 
-      onNotify(data.isLocal ? 'Análise genérica concluída (imagem não examinada).' : 'Auditoria visual concluída!');
+      onNotify(
+        data.analysisSource === 'workers-ai' || data.analysisSource === 'provider'
+          ? 'Auditoria visual concluída!'
+          : data.analysisSource === 'local-pixels'
+            ? 'Análise local concluída (medições da imagem, sem IA).'
+            : 'Análise genérica concluída (imagem não examinada).'
+      );
     } catch {
-      const fallback = { ...analyzeThumbnailLocally(videoTitle), isLocal: true };
+      const fallback: AnalyzeThumbnailSimpleResult = metrics
+        ? { ...analyzeFromMetrics(metrics), analysisSource: 'local-pixels' }
+        : { ...analyzeThumbnailLocally(videoTitle), isLocal: true, analysisSource: 'title-only' };
       setResult(fallback);
-      onNotify('Análise genérica concluída (imagem não examinada).');
+      onNotify(fallback.analysisSource === 'local-pixels' ? 'Análise local concluída (medições da imagem, sem IA).' : 'Análise genérica concluída (imagem não examinada).');
     } finally {
       inFlightRef.current = false;
       setIsLoading(false);
@@ -214,7 +248,10 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount }: ModeAnalyzeProp
 
             {result && (
               <div className="space-y-4">
-                {result.isLocal && (
+                {result.analysisSource && SOURCE_LABEL[result.analysisSource] && (
+                  <p className="text-xs text-zinc-500">{SOURCE_LABEL[result.analysisSource]}</p>
+                )}
+                {result.isLocal && (!result.analysisSource || result.analysisSource === 'title-only') && (
                   <div role="note" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-relaxed text-amber-100">
                     <strong className="font-semibold">Análise genérica — a imagem não foi examinada.</strong>{' '}
                     Sem um diretor visual configurado, o motor local só usa o título do vídeo. Os pontos abaixo são verificações comuns para esse tipo de thumbnail, não observações da sua imagem. Confira cada um antes de aplicar o prompt corretivo.
