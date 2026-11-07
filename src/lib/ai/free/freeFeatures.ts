@@ -78,7 +78,7 @@ export async function analyzeWithFreeVision(
   ].slice(0, 3);
   const aiLooking = [
     ...artificial.map(d => `Visto pela IA: ${d}`),
-    ...typo.findings.map(f => `Tipografia: ${f}.`),
+    ...typo.findings.map(f => `Tipografia: ${f.replace(/\.$/, '')}.`),
     ...metricIssues.map(i => i.text),
   ].slice(0, 4);
   const topProblem = metricIssues[0] && metricIssues[0].severity >= 6

@@ -51,7 +51,7 @@ export function reviewTypography(textSeen: string, typeObservation: string): Typ
   const obs = plain(typeObservation || '');
   const picked = RULES.filter(r => r.test.test(obs));
   if (picked.length === 0 || (picked.length === 1 && NONE.test((typeObservation || '').trim()))) {
-    return { findings: ['Tipografia sem defeito evidente pela leitura da IA; confira letras e acentos de perto.'], correction: null };
+    return { findings: ['sem defeito evidente pela leitura da IA; confira letras e acentos de perto'], correction: null };
   }
   const findings = picked.map(r => r.finding);
   const steps = picked.map(r => r.correction);
