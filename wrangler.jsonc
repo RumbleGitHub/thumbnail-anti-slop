@@ -1,0 +1,35 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"main": ".open-next/worker.js",
+	"name": "thumbnail-anti-slop",
+	// Same date the production Worker was first deployed with (autoconfig, 2026-11-04).
+	"compatibility_date": "2026-11-04",
+	"compatibility_flags": [
+		"nodejs_compat",
+		"global_fetch_strictly_public"
+	],
+	"assets": {
+		"directory": ".open-next/assets",
+		"binding": "ASSETS"
+	},
+	"services": [
+		{
+			// Self-reference service binding, the service name must match the worker name
+			// see https://opennext.js.org/cloudflare/caching
+			"binding": "WORKER_SELF_REFERENCE",
+			"service": "thumbnail-anti-slop"
+		}
+	],
+	"images": {
+		// Enable image optimization
+		// see https://opennext.js.org/cloudflare/howtos/image
+		"binding": "IMAGES"
+	},
+	"observability": {
+		"enabled": true
+	},
+	// Worker Previews (wrangler preview): required block, empty = no Preview-specific settings.
+	// Runtime vars/secrets are NOT inherited from production; set them for previews separately.
+	// https://developers.cloudflare.com/workers/previews/configuration/
+	"previews": {}
+}
