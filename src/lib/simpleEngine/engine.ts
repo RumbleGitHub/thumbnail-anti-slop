@@ -40,6 +40,7 @@ import { ResearchBroker } from './researchBroker.ts';
 import { planPhysicalInteraction } from './interactionPlanner.ts';
 import { planSpatialHierarchy, isCompositionAuthoritativelyOwned } from './spatialHierarchyPlanner.ts';
 import { mergeComplementaryPlan } from './complementaryMerge.ts';
+import { PERSON_KEYWORDS } from './personDetection.ts';
 
 export {
   resolveThemeContext,
@@ -166,8 +167,90 @@ export function buildAntiSlopAvoid(userText: string): string[] {
 
 // Helper to detect gaming/tech/hardware in text
 export function detectTechHardware(text: string): boolean {
-  const pattern = /(legion|steam\s*deck|rog\s*ally|switch|gameboy|console|joystick|controlador|videogame|gpu|rtx|playstation|xbox|nintendo|iphone|macbook|ipad|android|smartphone|pc\s*gamer|computador|setup|teclado|mouse|hardware|placa\s*de\s*v[íi]deo|intel|amd|ryzen|gadget|monitor|notebook|laptop|chip|circuito|bancada|teardown)/i;
+  const pattern = /(legion|steam\s*deck|rog\s*ally|switch|gameboy|console|\bps[1-5]\b|\bpsp\b|ps\s*vita|dualsense|dualshock|headset|celular|joystick|controlador|videogame|gpu|rtx|playstation|xbox|nintendo|iphone|macbook|ipad|android|smartphone|pc\s*gamer|computador|setup|teclado|mouse|hardware|placa\s*de\s*v[íi]deo|intel|amd|ryzen|gadget|monitor|notebook|laptop|chip|circuito|bancada|teardown)/i;
   return pattern.test(text);
+}
+
+const HELD_OBJECT_EN: Record<string, string> = {
+  mapa: 'map', espada: 'sword', escudo: 'shield', livro: 'book', caneca: 'mug', copo: 'cup',
+  controle: 'controller', celular: 'phone', microfone: 'microphone', troféu: 'trophy', trofeu: 'trophy',
+  capa: 'game case', jogo: 'game case', console: 'console', câmera: 'camera', camera: 'camera',
+};
+
+/**
+ * Returns the English name of the object the user explicitly says is being held
+ * ("segurando o mapa" -> "map"), or null. Only known nouns are translated so the
+ * engine never invents a prop that the creator did not mention.
+ */
+export function describeHeldObjectEn(text: string): string | null {
+  const m = (text || '').match(/segurando\s+(?:o|a|os|as|um|uma|meu|minha|seu|sua)?\s*([\p{L}]+)/iu);
+  if (!m) return null;
+  return HELD_OBJECT_EN[m[1].toLowerCase()] || null;
+}
+
+const KNOWN_BRAND_WORDS = /^(iphone|ipad|macbook|airpods|galaxy|pixel|xiaomi|redmi|poco|motorola|moto|samsung|apple|sony|playstation|xbox|nintendo|switch|steam|legion|rog|lenovo|asus|acer|dell|alienware|razer|logitech|corsair|hyperx|nvidia|geforce|radeon|ryzen|intel|gopro|dji|canon|nikon|fujifilm|tesla|honda|toyota|civic|corolla|volkswagen|fiat|chevrolet|ford|bmw|porsche|ferrari|lego|minecraft|fortnite|zelda|mario|pokemon|pokémon)$/i;
+
+// Words that describe the video, not the object ("Gameplay", "Review", "Unboxing", "Vs").
+const TITLE_VIDEO_WORDS = /^(gameplay|review|reviews|unboxing|teste|testei|tutorial|novidades|vale|vs|versus|top|melhores|piores|dicas|guia|tier|ranking|análise|analise|comparativo)$/i;
+
+/** A token that clearly signals a product/proper name rather than an ordinary capitalized word. */
+function isStrongNameToken(token: string): boolean {
+  return /[A-Za-z]\d|\d[A-Za-z]/.test(token) ||   // S26, PS5, RTX4090, 4K
+    /^[a-z]+[A-Z]/.test(token) ||                 // iPhone, eFootball
+    /^[A-Z]{2,5}$/.test(token) ||                 // OLED, GTA, DLC
+    KNOWN_BRAND_WORDS.test(token);
+}
+
+/**
+ * Product/proper names that appear in the video title, e.g. "iPhone 17 Pro vs Galaxy S26 Ultra"
+ * -> ["iPhone 17 Pro", "Galaxy S26 Ultra"]. Conservative: a run of capitalized/numeric tokens is kept
+ * only when it contains a strong name token, so "Unboxing Gamer" or "Testei" never qualify.
+ */
+export function extractTitleNames(title: string): string[] {
+  const text = (title || '').trim();
+  // An all-caps title has no usable capitalization signal.
+  if (!text || text === text.toUpperCase()) return [];
+  const tokens = text.split(/\s+/);
+  const names: string[] = [];
+  let run: string[] = [];
+  const flush = () => {
+    // A lone brand or acronym ("Apple", "GTA") names a topic, not a specific object to draw.
+    const qualifies = run.length > 1
+      ? run.some(isStrongNameToken)
+      : run.length === 1 && (/[A-Za-z]\d|\d[A-Za-z]/.test(run[0]) || /^[a-z]+[A-Z]/.test(run[0]));
+    if (qualifies) names.push(run.join(' '));
+    run = [];
+  };
+  for (const raw of tokens) {
+    const token = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}+]+$/gu, '');
+    if (TITLE_VIDEO_WORDS.test(token)) { flush(); continue; }
+    const startsName = /^\p{Lu}/u.test(token) || /^[a-z]+[A-Z]/.test(token) || /[A-Za-z]\d|\d[A-Za-z]/.test(token);
+    const continuesName = run.length > 0 && /^\d+$/.test(token); // "iPhone 17"
+    if (token && (startsName || continuesName)) run.push(token);
+    else flush();
+    if (/[,:;!?()|]$|—|–/.test(raw)) flush();
+  }
+  flush();
+  return names;
+}
+
+/**
+ * Scene text for new compositions: the creator's idea, plus product/proper names that appear only in
+ * the title ("iPhone 17 Pro vs Galaxy S26 Ultra" + "os dois celulares lado a lado"). With a TARGET image
+ * the composition is locked, so nothing from the title is added.
+ */
+export function resolveSceneDescription(
+  input: Pick<CreateThumbnailInput, 'videoTitle' | 'ideaDescription'>,
+  hasTargetImage = false
+): string {
+  const idea = (input.ideaDescription || '').trim();
+  const title = (input.videoTitle || '').trim();
+  if (!idea) return title;
+  if (hasTargetImage) return idea;
+  const ideaLower = idea.toLowerCase();
+  const missing = extractTitleNames(title).filter(name => !ideaLower.includes(name.toLowerCase()));
+  if (missing.length === 0) return idea;
+  return `${idea.replace(/[.!\s]+$/, '')} (featuring ${missing.join(' and ')}, as named in the video title)`;
 }
 
 // Translates vague buzzwords into concrete visual decisions (Rule 10)
@@ -339,8 +422,7 @@ export function classifyTask(
   const hasTargetRef = references.some(r => r.role === 'IMAGEM_ALVO' || r.isTarget);
   const hasPersonRef = references.some(r => r.role === 'PESSOA');
   const hasProductRef = references.some(r => r.role === 'PRODUTO');
-  const hasSceneRef = references.some(r => r.role === 'CENÁRIO');
-  const hasStyleRef = references.some(r => r.role === 'ESTILO');
+    const hasStyleRef = references.some(r => r.role === 'ESTILO');
   const hasCompRef = references.some(r => r.role === 'COMPOSIÇÃO');
 
   const characterRef = references.find(r =>
@@ -664,6 +746,31 @@ export function resolveAttributeOwnership(
 /**
  * 4. PROVENANCE GUARD: Audits visual statements and purges unsupported defaults or reference leakages.
  */
+/**
+ * True when the environment was resolved by the user, an assigned scenario reference,
+ * or the TARGET image. In those cases the prompt must not forbid the chosen setting.
+ */
+export function hasAuthoritativeEnvironment(plan: Pick<ScenePlan, 'environmentOwner'>): boolean {
+  return plan.environmentOwner === 'USER' ||
+    plan.environmentOwner === 'SCENARIO_REF' ||
+    plan.environmentOwner === 'TARGET';
+}
+
+/**
+ * True when `offset` falls inside an instruction that forbids something
+ * (an AVOID/NEGATIVE section, or a clause such as "without ... (no bedrooms, desks)").
+ * Rewriting tokens there would turn "no desks" into "no clean neutral background".
+ */
+function isInsideNegatedInstruction(text: string, offset: number): boolean {
+  const before = text.slice(0, offset);
+  const headings = before.match(/^[A-Z][A-Z /&()'-]+:/gm);
+  const lastHeading = headings ? headings[headings.length - 1] : '';
+  if (/AVOID|NEGATIVE/.test(lastHeading)) return true;
+  const clauseStart = Math.max(before.lastIndexOf('\n'), before.lastIndexOf('.'), before.lastIndexOf(';'), before.lastIndexOf(':'));
+  const clause = before.slice(clauseStart + 1);
+  return /\b(no|not|zero|without|avoid|avoiding|never)\b/i.test(clause);
+}
+
 export function auditPromptProvenance(
   promptText: string,
   scenePlan: ScenePlan,
@@ -674,9 +781,7 @@ export function auditPromptProvenance(
   const warnings: string[] = [];
 
   // 1. UNSUPPORTED DOMESTIC ENVIRONMENT PURGE
-  const hasExplicitEnv = scenePlan.environmentOwner === 'USER' ||
-    scenePlan.environmentOwner === 'SCENARIO_REF' ||
-    scenePlan.environmentOwner === 'TARGET';
+  const hasExplicitEnv = hasAuthoritativeEnvironment(scenePlan);
 
   if (!hasExplicitEnv) {
     const domesticTokens = [
@@ -690,9 +795,17 @@ export function auditPromptProvenance(
     ];
 
     for (const pattern of domesticTokens) {
-      if (pattern.test(cleaned)) {
+      let replacedAny = false;
+      cleaned = cleaned.replace(pattern, (match: string, ...rest: unknown[]) => {
+        const offset = rest[rest.length - 2] as number;
+        const source = rest[rest.length - 1] as string;
+        // Leave exclusions intact: "no bedrooms" already forbids the setting.
+        if (isInsideNegatedInstruction(source, offset)) return match;
+        replacedAny = true;
+        return 'clean neutral background with generous negative space';
+      });
+      if (replacedAny) {
         purged.push(`Removed unsupported domestic environment fallback matching ${pattern}`);
-        cleaned = cleaned.replace(pattern, 'clean neutral background with generous negative space');
       }
     }
   }
@@ -893,8 +1006,9 @@ export function extractExistingLighting(text: string): string | null {
  */
 export function buildScenePlan(
   input: CreateThumbnailInput,
-  approachIndex = 0
+  _approachIndex = 0
 ): ScenePlan {
+  void _approachIndex;
   const { videoTitle, ideaDescription, references = [] } = input;
   const userText = `${videoTitle} ${ideaDescription}`.trim();
 
@@ -937,7 +1051,7 @@ export function buildScenePlan(
     preserve.push(`Exact target character armor, costume, clothing, materials, and physical textures.`);
     provenanceMap['costume'] = 'TARGET_IMAGE';
 
-    preserve.push(`Target body pose, physical build, and held props (including holding the map / equipment) with anatomically plausible hands.`);
+    preserve.push(`Target body pose, physical build, and held props (${describeHeldObjectEn(input.ideaDescription) ? `including holding the ${describeHeldObjectEn(input.ideaDescription)} / equipment` : 'any object or equipment already held in the target'}) with anatomically plausible hands.`);
     provenanceMap['body_and_props'] = 'TARGET_IMAGE';
 
     preserve.push(`Camera angle, framing distance, and optical perspective from target master.`);
@@ -1071,21 +1185,42 @@ export function resolveOutputMetadata(
  * CHANGE, ADAPT, PRESERVE, ENVIRONMENT, COMPOSITION, LIGHTING, AVOID.
  * Note: Aspect ratio resolutions and qualities are maintained in metadata, NOT hardcoded in prompt.
  */
+/**
+ * New-scene decisions the engine has already resolved (person present, which PESSOA
+ * references own the face, whether a product must keep its real geometry). Passed to
+ * every model adapter so each renders the same locks in its own idiom. When absent,
+ * adapters keep their previous behavior (edit tasks, legacy callers).
+ */
+export interface NewSceneSubject {
+  hasPerson: boolean;
+  identityRefs: SimpleReference[];
+  productLock: boolean;
+  productRefs: SimpleReference[];
+  productFacts: string[];
+}
+
+const refNameList = (refs: SimpleReference[]) => refs.map(r => `"${r.name}"`).join(', ');
+const refImageList = (all: SimpleReference[], refs: SimpleReference[]) =>
+  refs.map(r => `Image ${all.findIndex(x => x.id === r.id) + 1} ("${r.name}")`).join(', ');
+const factSentence = (facts: string[]) => (facts.length > 0 ? ` Grounded physical characteristics: ${facts.join('. ')}.` : '');
+
 export function buildOpenAIStructuredPrompt({
   plan,
   input,
   variant,
   typographyDirective,
-  arParam
+  arParam,
+  subject
 }: {
   plan: ScenePlan;
   input: CreateThumbnailInput;
   variant: 'SUNBURST' | 'FLARE';
   typographyDirective: string;
   arParam: string;
+  subject?: NewSceneSubject;
 }): string {
   const { videoTitle = '', ideaDescription = '', references = [], extraInstructions } = input;
-  const cleanIdea = ideaDescription.trim() || videoTitle.trim();
+  const cleanIdea = resolveSceneDescription(input, Boolean(plan.targetImage));
   const targetName = plan.targetImage?.name || 'personagem/imagem mestre';
   const idName = plan.identitySource?.name || 'foto de identidade';
   const prodName = plan.productSource?.name || 'novo produto';
@@ -1205,6 +1340,10 @@ export function buildOpenAIStructuredPrompt({
     adaptText = isSunburst
       ? `Subtle motivated environmental light bounce on shoulders and silhouette edges consistent with new setting light sources, physically grounding subject without artificial halos or green-screen cut-and-paste artifacts.`
       : `Subtle environmental light bounce on subject edges to physically ground in new environment without halos.`;
+  } else if (subject && !subject.hasPerson) {
+    adaptText = isSunburst
+      ? `Balanced optical falloff between subject and background with true relative scale between objects.`
+      : `Authentic optical depth and true relative scale.`;
   } else {
     adaptText = isSunburst
       ? `Anatomically plausible hands with natural grip, correct visible finger count according to pose and natural occlusion. Balanced optical falloff between subject and background.`
@@ -1225,6 +1364,27 @@ export function buildOpenAIStructuredPrompt({
     preserveText = isSunburst
       ? `1. Exact subject facial identity, true age, and composed facial expression.\n2. Subject body posture, clothing fabrics, and any held objects.\n3. Framing scale and camera distance from master photo.`
       : `1. Subject facial identity, expression, and posture.\n2. Clothing and held items.`;
+  } else if (subject) {
+    const lines: string[] = [];
+    if (subject.identityRefs.length > 0) {
+      lines.push(isSunburst
+        ? `Facial identity from person reference ${refNameList(subject.identityRefs)}: recognizable bone structure, eye shape, nose and mouth proportions, natural asymmetry, true age, hairline, and facial hair. Do not copy clothing, background, lighting, or pose from that photo.`
+        : `Facial identity from ${refNameList(subject.identityRefs)} (bone structure, eye shape, true age); not its clothing, background, or lighting.`);
+    }
+    if (subject.hasPerson) {
+      lines.push(isSunburst
+        ? `Natural human facial asymmetry, closed-mouth composed expression, and natural skin texture without plastic smoothing.`
+        : `Natural facial asymmetry, closed-mouth expression, and skin texture.`);
+    }
+    if (subject.productLock) {
+      const owner = subject.productRefs.length > 0 ? ` from product reference ${refNameList(subject.productRefs)}` : ' of the named product';
+      lines.push(isSunburst
+        ? `Product fidelity${owner}: authentic industrial geometry, true proportions and scale, real button, port, and logo placement, factory materials, and an instantly recognizable silhouette; never a generic or invented look-alike.${factSentence(subject.productFacts)}`
+        : `Product fidelity${owner}: real geometry, proportions, buttons, ports, and materials.${factSentence(subject.productFacts)}`);
+    }
+    lines.push(isSunburst ? `Authentic physical materials and tactile textures.` : `Physical materials and camera perspective.`);
+    if (isSunburst) lines.push(`Grounded real-world scale and camera perspective.`);
+    preserveText = lines.map((l, i) => `${i + 1}. ${l}`).join('\n');
   } else {
     preserveText = isSunburst
       ? `1. Natural human facial asymmetry, closed-mouth composed expression, and natural skin texture without plastic smoothing.\n2. Authentic physical materials and tactile textures.\n3. Grounded real-world scale and camera perspective.`
@@ -1305,6 +1465,7 @@ export interface GooglePromptOptions {
   variant: 'BANANA_2' | 'BANANA_PRO';
   typographyDirective: string;
   arParam: string;
+  subject?: NewSceneSubject;
 }
 
 /**
@@ -1322,9 +1483,10 @@ export function buildGooglePrompt({
   input,
   variant,
   typographyDirective,
-  arParam
+  arParam,
+  subject
 }: GooglePromptOptions): string {
-  const cleanIdea = (input.ideaDescription || '').trim() || (input.videoTitle || '').trim();
+  const cleanIdea = resolveSceneDescription(input, Boolean(plan.targetImage));
   const refs = input.references || [];
   const targetName = plan.targetImage?.name || 'personagem mestre';
   const idName = plan.identitySource?.name || 'foto de identidade';
@@ -1360,6 +1522,19 @@ export function buildGooglePrompt({
   } else if (plan.taskType === 'CHANGE_ENVIRONMENT') {
     attributeControl += `- Subject: Image ${targetIdx} ("${targetName}") controls subject identity, body posture, clothing, and props.\n`;
     attributeControl += `- Environment: Image ${envIdx} ("${envName}") controls background architecture, spatial perspective, and lighting atmosphere.\n`;
+  } else if (subject && (subject.identityRefs.length > 0 || subject.productLock)) {
+    if (subject.identityRefs.length > 0) {
+      attributeControl += `- Facial Identity: ${refImageList(refs, subject.identityRefs)} controls recognizable bone structure, eye shape, true age, hairline, and facial hair only. Clothing, background, lighting, and pose come from this scene, not from that photo.\n`;
+    }
+    if (subject.productLock) {
+      attributeControl += subject.productRefs.length > 0
+        ? `- Product: ${refImageList(refs, subject.productRefs)} controls exact industrial geometry, proportions, buttons, ports, and materials only, not its studio background.\n`
+        : `- Product: the named product keeps its real industrial geometry, proportions, button and port layout, and materials, never a generic look-alike.\n`;
+    }
+    const otherRefs = refs.filter(r => !subject.identityRefs.includes(r) && !subject.productRefs.includes(r));
+    if (otherRefs.length > 0) {
+      attributeControl += `- Other references: ${refImageList(refs, otherRefs)} control only the attributes of their assigned roles.\n`;
+    }
   } else {
     attributeControl += refs.length > 0
       ? `- Visual Elements: Controlled by provided references as primary visual anchors.\n`
@@ -1397,6 +1572,13 @@ export function buildGooglePrompt({
     whatRemains += `1. Exact subject facial identity, true age, and composed expression.\n`;
     whatRemains += `2. Subject body posture, clothing, and any held objects.\n`;
     whatRemains += `3. Framing scale and camera distance.`;
+  } else if (subject) {
+    const lines: string[] = [];
+    if (subject.hasPerson) lines.push('Composed human expression with closed mouth and natural skin texture without plastic smoothing.');
+    if (subject.productLock) lines.push(`Authentic product geometry, true proportions, and recognizable silhouette.${factSentence(subject.productFacts)}`);
+    lines.push('Grounded real-world scale and authentic physical materials.');
+    lines.push('Clean optical separation with generous negative space.');
+    whatRemains += lines.map((l, i) => `${i + 1}. ${l}`).join('\n');
   } else {
     whatRemains += `1. Composed human expression with closed mouth and natural skin texture without plastic smoothing.\n`;
     whatRemains += `2. Grounded real-world scale and authentic physical materials.\n`;
@@ -1405,8 +1587,12 @@ export function buildGooglePrompt({
 
   // 5. PHOTOGRAPHIC DIRECTIVES
   const fidelityNote = variant === 'BANANA_PRO' ? ' Maximum micro-contrast rendering with multi-reference fidelity.' : '';
+  // Never forbid a setting the user, a scenario reference, or the TARGET image chose.
+  const domesticExclusion = hasAuthoritativeEnvironment(plan)
+    ? 'Zero synthetic AI gloss, waxy smoothing, or neon rim lights.'
+    : 'Zero synthetic AI gloss, waxy smoothing, neon rim lights, or unrequested domestic clutter (no bedrooms, sofas, desks, or lamps).';
   const photoDirectives = `PHOTOGRAPHIC DIRECTIVES:
-16:9 widescreen format (${arParam}). 35mm lens perspective preserving authentic spatial depth. Directed visual storytelling with bold subject silhouette optimized for 120px mobile thumbnail scale. Motivated physical lighting with natural directional key light and soft shadow falloff. Zero synthetic AI gloss, waxy smoothing, neon rim lights, or unrequested domestic clutter (no bedrooms, sofas, desks, or lamps).${fidelityNote}`;
+16:9 widescreen format (${arParam}). 35mm lens perspective preserving authentic spatial depth. Directed visual storytelling with bold subject silhouette optimized for 120px mobile thumbnail scale. Motivated physical lighting with natural directional key light and soft shadow falloff. ${domesticExclusion}${fidelityNote}`;
 
   // 6. TYPOGRAPHY
   const typoSection = `TYPOGRAPHY:
@@ -1434,6 +1620,7 @@ export interface MidjourneyPromptOptions {
   plan: ScenePlan;
   input: CreateThumbnailInput;
   variant: 'V8_2' | 'NIJI_7';
+  subject?: NewSceneSubject;
 }
 
 /**
@@ -1446,9 +1633,10 @@ export interface MidjourneyPromptOptions {
 export function buildMidjourneyPrompt({
   plan,
   input,
-  variant
+  variant,
+  subject
 }: MidjourneyPromptOptions): string {
-  const cleanIdea = (input.ideaDescription || '').trim() || (input.videoTitle || '').trim();
+  const cleanIdea = resolveSceneDescription(input, Boolean(plan.targetImage));
   const arFlag = input.aspectRatio === '9:16' ? '--ar 9:16' : '--ar 16:9';
   const targetName = plan.targetImage?.name || 'target character';
   const idName = plan.identitySource?.name || 'reference person';
@@ -1465,11 +1653,21 @@ export function buildMidjourneyPrompt({
       ? `and exact facial hair from "${targetName}"`
       : '';
 
-    visualText = `Photographic YouTube thumbnail, ${cleanIdea}, featuring the person from "${idName}" organically embodied as the character from "${targetName}", ${hairDesc} ${beardDesc}, wearing the exact heavy worn armor and costume, holding the map naturally with anatomically plausible hands. Grounded realism, motivated directional physical lighting, 35mm lens perspective, sharp subject focus with clean separation, authentic textures without plastic smoothing`;
+    visualText = `Photographic YouTube thumbnail, ${cleanIdea}, featuring the person from "${idName}" organically embodied as the character from "${targetName}", ${hairDesc} ${beardDesc}, keeping the exact costume from "${targetName}", ${describeHeldObjectEn(cleanIdea) ? `holding the ${describeHeldObjectEn(cleanIdea)} naturally` : 'keeping any held objects'} with anatomically plausible hands. Grounded realism, motivated directional physical lighting, 35mm lens perspective, sharp subject focus with clean separation, authentic textures without plastic smoothing`;
   } else if (plan.taskType === 'REPLACE_OBJECT') {
     visualText = `Photographic YouTube thumbnail, ${cleanIdea}, featuring the creator holding the physical hardware device from "${prodName}" with natural plausible hand grip, authentic chassis seams, ports, and buttons, natural composed facial expression, motivated lighting matching the scene, 35mm lens perspective, tactile matte materials`;
   } else if (plan.taskType === 'CHANGE_ENVIRONMENT') {
     visualText = `Photographic YouTube thumbnail, ${cleanIdea}, subject from "${targetName}" naturally integrated into the architectural setting of "${envName}", subtle motivated environmental light bounce on shoulders and silhouette edges, authentic spatial depth, 35mm perspective, clean negative space`;
+  } else if (subject) {
+    // Midjourney takes identity from image parameters (e.g. --oref), so only text-expressible locks go here.
+    const parts = [
+      `Photographic YouTube thumbnail, ${cleanIdea}`,
+      'compelling hero presentation with clean silhouette and immediate readability at 120px mobile thumbnail scale',
+    ];
+    if (subject.hasPerson) parts.push('natural composed human expression with closed mouth');
+    if (subject.productLock) parts.push('the real product with authentic industrial geometry, true proportions, and real buttons and ports');
+    parts.push('motivated directional physical key light with soft shadow falloff', '35mm lens perspective', 'authentic tactile textures', 'generous negative space');
+    visualText = parts.join(', ');
   } else {
     visualText = `Photographic YouTube thumbnail, ${cleanIdea}, compelling hero presentation with clean silhouette and immediate readability at 120px mobile thumbnail scale, natural composed human expression with closed mouth, motivated directional physical key light with soft shadow falloff, 35mm lens perspective, authentic tactile textures, generous negative space`;
   }
@@ -1498,6 +1696,7 @@ export interface FluxPromptOptions {
   variant: 'MAX' | 'PRO' | 'FLEX' | 'KLEIN';
   typographyDirective: string;
   arParam: string;
+  subject?: NewSceneSubject;
 }
 
 /**
@@ -1511,9 +1710,10 @@ export function buildFluxPrompt({
   input,
   variant,
   typographyDirective,
-  arParam
+  arParam,
+  subject
 }: FluxPromptOptions): string {
-  const cleanIdea = (input.ideaDescription || '').trim() || (input.videoTitle || '').trim();
+  const cleanIdea = resolveSceneDescription(input, Boolean(plan.targetImage));
   const refs = input.references || [];
   const targetName = plan.targetImage?.name || 'target character';
   const idName = plan.identitySource?.name || 'identity photo';
@@ -1535,23 +1735,41 @@ export function buildFluxPrompt({
       ? `and exact facial hair from Image ${targetIdx}`
       : '';
 
-    directDescription = `Use the person from Image ${idIdx} ("${idName}") for facial identity. Use Image ${targetIdx} ("${targetName}") as the structural target for body posture, 3D skull angle, head tilt, armor fabrics, and physical equipment. Reconstruct the facial anatomy organically to match Image ${idIdx}'s authentic bone structure, eye shape, and true age, while strictly ${hairPreserve} ${beardPreserve}, and hands holding the map with natural plausible grip and correct visible finger count.`;
+    directDescription = `Use the person from Image ${idIdx} ("${idName}") for facial identity. Use Image ${targetIdx} ("${targetName}") as the structural target for body posture, 3D skull angle, head tilt, armor fabrics, and physical equipment. Reconstruct the facial anatomy organically to match Image ${idIdx}'s authentic bone structure, eye shape, and true age, while strictly ${hairPreserve} ${beardPreserve}, and hands ${describeHeldObjectEn(cleanIdea) ? `holding the ${describeHeldObjectEn(cleanIdea)}` : `keeping any object held in Image ${targetIdx}`} with natural plausible grip and correct visible finger count.`;
   } else if (plan.taskType === 'REPLACE_OBJECT') {
     directDescription = `Use Image ${targetIdx} ("${targetName}") as master anchor for person facial identity, expression, pose, and background environment. Use Image ${prodIdx} ("${prodName}") for the exact physical hardware geometry, chassis proportions, ports, buttons, and matte textures. Adapt hand grip naturally around the new hardware with correct visible finger count.`;
   } else if (plan.taskType === 'CHANGE_ENVIRONMENT') {
     directDescription = `Preserve the subject from Image ${targetIdx} ("${targetName}") including exact facial identity, composed expression, clothing, and body posture. Integrate the authentic background architecture and spatial atmosphere from Image ${envIdx} ("${envName}") with matching directional light bounce.`;
   } else {
     directDescription = `Photographic YouTube thumbnail, ${cleanIdea}. Subject presented with bold silhouette and clear optical separation optimized for 120px mobile thumbnail scale. 35mm lens perspective preserving authentic spatial depth.`;
+    if (subject && subject.identityRefs.length > 0) {
+      directDescription += ` Use the person from ${refImageList(refs, subject.identityRefs)} for facial identity only: recognizable bone structure, eye shape, true age, and natural asymmetry, with clothing, background, and lighting defined by this scene.`;
+    }
+    if (subject?.productLock) {
+      directDescription += subject.productRefs.length > 0
+        ? ` The product matches ${refImageList(refs, subject.productRefs)} exactly: authentic industrial geometry, true proportions, real button and port layout, and factory materials, placed in this scene's own setting.${factSentence(subject.productFacts)}`
+        : ` The named product keeps its authentic industrial geometry, true proportions, real button and port layout, and instantly recognizable silhouette.${factSentence(subject.productFacts)}`;
+    }
   }
 
   const variantNote = variant === 'MAX' ? ' Maximum photographic detail and strict instruction following.' : '';
-  const positiveAttributes = `POSITIVE VISUAL ATTRIBUTES:
-- Natural skin texture with realistic pores, authentic tonal variation, and zero plastic smoothing.
-- Physically motivated illumination with clean directional key light and soft natural shadow falloff.
-- Restrained believable human expression appropriate to the scene with closed mouth.
-- Controlled optical separation with a readable background and generous negative space.
-- Anatomically plausible hands with natural grip and correct visible finger count according to pose.
-- 35mm digital camera perspective (${arParam}) with tactile physical materials.${variantNote}`;
+  // Human attributes only when a person is in the shot; otherwise they invite an invented person.
+  const humanLines = subject && !subject.hasPerson
+    ? []
+    : [
+        '- Natural skin texture with realistic pores, authentic tonal variation, and zero plastic smoothing.',
+        '- Restrained believable human expression appropriate to the scene with closed mouth.',
+        '- Anatomically plausible hands with natural grip and correct visible finger count according to pose.',
+      ];
+  const positiveAttributes = [
+    'POSITIVE VISUAL ATTRIBUTES:',
+    humanLines[0],
+    '- Physically motivated illumination with clean directional key light and soft natural shadow falloff.',
+    humanLines[1],
+    '- Controlled optical separation with a readable background and generous negative space.',
+    humanLines[2],
+    `- 35mm digital camera perspective (${arParam}) with tactile physical materials.${variantNote}`,
+  ].filter(Boolean).join('\n');
 
   let preservationConstraints = 'PRESERVATION CONSTRAINTS:\n';
   if (plan.taskType === 'IDENTITY_TRANSFER') {
@@ -1560,6 +1778,9 @@ export function buildFluxPrompt({
     preservationConstraints += `Do not alter person facial identity, clothing, background environment, or scene lighting. Zero deformed hardware geometry.`;
   } else if (plan.taskType === 'CHANGE_ENVIRONMENT') {
     preservationConstraints += `Do not alter subject facial identity, clothing, or body posture. Zero artificial halo around edges.`;
+  } else if (hasAuthoritativeEnvironment(plan)) {
+    // The setting was chosen explicitly (e.g. "no meu quarto"); do not forbid it.
+    preservationConstraints += `Zero synthetic AI gloss, waxy smoothing, or neon rim lights.`;
   } else {
     preservationConstraints += `Zero synthetic AI gloss, waxy smoothing, neon rim lights, or unrequested domestic room clutter (no bedrooms, living rooms, sofas, desks, or lamps).`;
   }
@@ -1586,13 +1807,15 @@ export interface RenderPromptOptions {
   basePrompt: string;
   typographyDirective: string;
   arParam: string;
+  /** New-scene locks resolved by generateSimpleThumbnail; omitted for edit tasks. */
+  subject?: NewSceneSubject;
 }
 
 /**
  * Central prompt dispatcher that renders model-specific prompt formats.
  */
 export function renderPromptForTargetModel(options: RenderPromptOptions): string {
-  const { plan, input, basePrompt, typographyDirective, arParam } = options;
+  const { plan, input, basePrompt, typographyDirective, arParam, subject } = options;
   const normalizedModel = normalizeTargetModel(input.targetModel);
   const cfg = TARGET_MODEL_CONFIGS[normalizedModel];
 
@@ -1604,7 +1827,8 @@ export function renderPromptForTargetModel(options: RenderPromptOptions): string
         input,
         variant,
         typographyDirective,
-        arParam
+        arParam,
+        subject
       });
     }
 
@@ -1615,7 +1839,8 @@ export function renderPromptForTargetModel(options: RenderPromptOptions): string
         input,
         variant,
         typographyDirective,
-        arParam
+        arParam,
+        subject
       });
     }
 
@@ -1624,7 +1849,8 @@ export function renderPromptForTargetModel(options: RenderPromptOptions): string
       return buildMidjourneyPrompt({
         plan,
         input,
-        variant
+        variant,
+        subject
       });
     }
 
@@ -1638,7 +1864,8 @@ export function renderPromptForTargetModel(options: RenderPromptOptions): string
         input,
         variant,
         typographyDirective,
-        arParam
+        arParam,
+        subject
       });
     }
 
@@ -1656,8 +1883,8 @@ export function buildPromptFromScenePlan(
   input: CreateThumbnailInput,
   approachIndex = 0
 ): PromptBuilderResult {
-  const { videoTitle, ideaDescription, aspectRatio = '16:9', thumbnailText, fontName, reservedSpacePosition, stylePreset = 'Natural', textTreatment, reserveSpaceForText } = input;
-  const cleanIdea = ideaDescription.trim() || videoTitle.trim();
+  const { videoTitle, ideaDescription, aspectRatio = '16:9', thumbnailText, fontName, reservedSpacePosition, stylePreset = 'Natural', textTreatment } = input;
+  const cleanIdea = resolveSceneDescription(input, Boolean(plan.targetImage));
   const arParam = aspectRatio === '9:16' ? '9:16 vertical format' : '16:9 widescreen format';
   const targetName = plan.targetImage?.name || 'personagem/imagem mestre';
   const idName = plan.identitySource?.name || 'foto de identidade';
@@ -1712,7 +1939,7 @@ TARGET MASTER STRUCTURE (${targetName}):
 - Subject: Target character from (${targetName}).
 - Composition & Camera: Exact camera angle, 16:9 framing distance, body posture, head tilt, and 3D skull orientation from master image.
 - Armor & Clothing: Exact target character armor, physical fabrics, metal finishes, and weathered textures.
-- Props & Hands: Holding the map and physical equipment naturally with anatomically plausible hands, natural grip around the object, correct visible finger count according to pose and natural occlusion, no duplicated or fused fingers.
+- Props & Hands: ${describeHeldObjectEn(input.ideaDescription) ? `Holding the ${describeHeldObjectEn(input.ideaDescription)} and physical equipment` : 'Keeping any object and physical equipment held in the target'} naturally with anatomically plausible hands, natural grip around the object, correct visible finger count according to pose and natural occlusion, no duplicated or fused fingers.
 - Hair & Facial Hair: ${hairDesc} ${beardDesc}
 
 IDENTITY RECONSTRUCTION DIRECTIVE (MANDATORY):
@@ -1884,8 +2111,12 @@ export function interpretUserIntent(
   const isTech = detectTechHardware(combined);
   const approach = Math.abs(approachIndex) % 3;
 
-  const personKeywords = /(^|\b)(eu|meu\s*rosto|minha\s*rea[çc][ãa]o|pessoa|homem|mulher|criador|cara|apresentador|youtuber|selfie|jogador)(\b|$)/i;
-  const hasPerson = hasPersonOverride !== undefined ? hasPersonOverride : personKeywords.test(combined);
+  const hasPerson = hasPersonOverride !== undefined ? hasPersonOverride : PERSON_KEYWORDS.test(combined);
+
+  // Archetypes below may only add composition/lighting guidance. They must never
+  // replace the creator's subject with fixture content (consoles, moss, teardowns).
+  const isTeardownRequest = /(aberto|aberta|desmontad|desmontar|por\s*dentro|teardown|interno|interna|circuito|placa[\s-]*m[ãa]e|reparo|conserto|consertar|bancada)/i.test(combined);
+  const isHandheldDevice = /(port[áa]til|handheld|steam\s*deck|switch|legion|rog\s*ally|game\s*boy|psp|vita|celular|smartphone|iphone|galaxy|controle|joystick|controller|ipad|tablet)/i.test(combined);
 
   // Environment authority order resolution
   const explicitEnv = detectExplicitEnvironment(combined);
@@ -1910,6 +2141,33 @@ export function interpretUserIntent(
 
   // Specific Archetype 1: Side-by-Side Comparison (No person, e.g. "Um console antigo ao lado de um console moderno")
   const isSideBySide = /(ao\s*lado\s*de|comparando|compara[çc][ãa]o|vs\b|versus|lado\s*a\s*lado|antigo.*moderno|antigo.*novo|evolu[çc][ãa]o)/i.test(combined) && !hasPerson;
+  const isConsoleGenerationCompare = /(console|videogame|playstation|\bps[1-5]\b|xbox|nintendo|mega\s*drive|atari|super\s*nes|snes)/i.test(combined) &&
+    /(antigo|retr[oô]|cl[áa]ssico|moderno|novo|evolu[çc][ãa]o|gera[çc][ãa]o)/i.test(combined);
+  if (isSideBySide && !isConsoleGenerationCompare) {
+    // Compare exactly what the creator named (often only in the title, e.g. "iPhone 17 Pro vs Galaxy S26 Ultra").
+    const namedItems = [...new Set([...extractTitleNames(title), ...extractTitleNames(idea)])];
+    const compared = namedItems.length >= 2 ? ` (${namedItems.join(' and ')})` : '';
+    return {
+      approachTitle: 'Comparação Direta Lado a Lado',
+      hasPerson: false,
+      subjectEn: `Direct physical side-by-side comparison of the exact items named in the scene${compared}, placed next to each other at true relative scale, each instantly recognizable by its authentic silhouette, proportions, and real design details`,
+      contextEn: hasExplicitEnv
+        ? resolvedContextEn
+        : 'Clean neutral surface with soft natural optical falloff, calm background that keeps both items as the only focal points',
+      lightingEn: hasExplicitEnv
+        ? resolvedLightingEn
+        : 'Soft balanced directional key lighting falling evenly on both items, revealing true materials and edges without artificial digital glare',
+      compositionEn: 'Balanced side-by-side composition with both items large in frame, generous negative space, and clear silhouette recognition at 120px mobile scale',
+      expressionEn: 'None (pure object comparison scene without human presence)',
+      directionPt: {
+        ideia: 'Comparação direta e honesta: os itens citados lado a lado, sem elementos inventados.',
+        foco: 'Os dois itens comparados, em escala real um ao lado do outro, com diferenças de formato e acabamento legíveis.',
+        composicao: 'Enquadramento limpo dividindo o espaço em proporção equilibrada, itens grandes no quadro e espaço negativo para leitura rápida.',
+        expressao: 'Nenhuma (cena puramente comparativa de objetos sem presença humana).',
+        visual: 'Luz direcional suave e uniforme sobre os dois itens, revelando materiais reais sem brilho artificial.'
+      }
+    };
+  }
   if (isSideBySide) {
     return {
       approachTitle: 'Comparação Geracional Lado a Lado',
@@ -1955,7 +2213,7 @@ export function interpretUserIntent(
   }
 
   // Specific Archetype 3: Opened Laptop / Hardware Teardown (No person, e.g. "Notebook aberto na mesa mostrando uma diferença de hardware")
-  const isOpenedNotebook = (/(notebook|laptop).*aberto/i.test(combined) || (/(notebook|laptop|hardware|pe[çc]a|circuito)/i.test(combined) && !hasPerson));
+  const isOpenedNotebook = (/(notebook|laptop).*aberto/i.test(combined) || (/(notebook|laptop)/i.test(combined) && !hasPerson && isTeardownRequest));
   if (isOpenedNotebook) {
     return {
       approachTitle: 'Bancada Técnica / Hardware Aberto',
@@ -1982,6 +2240,8 @@ export function interpretUserIntent(
   // Specific Archetype 4: Gaming Handheld in Domestic Living Room (ONLY when sofa/living room is EXPLICITLY requested by user)
   const hasExplicitSofa = /(sof[aá]|couch|living\s*room|sala\s*de\s*estar)/i.test(combined);
   const isGamingCouch = hasExplicitSofa && hasPerson;
+  const namedHandheld = combined.match(/(legion\s*go|steam\s*deck(\s*oled)?|rog\s*ally(\s*x)?|nintendo\s*switch(\s*2)?|switch\s*2|ps\s*vita|psp|game\s*boy)/i)?.[0];
+  const sofaDeviceLabel = namedHandheld ? `O ${namedHandheld}` : 'O console portátil';
   if (isGamingCouch) {
     return {
       approachTitle: 'Cumplicidade no Sofá / Gaming Autêntico',
@@ -1992,8 +2252,8 @@ export function interpretUserIntent(
       compositionEn: 'Conversational eye-level medium framing with balanced optical depth preserving living room context readability',
       expressionEn: 'Relaxed confidence and subtle satisfaction, direct engaging gaze toward viewer or down at screen, natural closed mouth',
       directionPt: {
-        ideia: 'Momento autêntico e relaxado no sofá: o criador experimenta o console portátil com o novo sistema instalado.',
-        foco: 'O Legion Go em primeiro plano com tela ligada e a postura natural do criador no sofá da sala.',
+        ideia: 'Momento autêntico e relaxado no sofá: o criador usa o console portátil de forma natural, como no dia a dia.',
+        foco: `${sofaDeviceLabel} em primeiro plano com tela ligada e a postura natural do criador no sofá da sala.`,
         composicao: 'Plano médio na altura dos olhos, enquadramento centrado no criador e no console, mantendo o ambiente crível da sala no fundo.',
         expressao: 'Satisfação genuína e sutil, olhar atento ao console ou cúmplice com a câmera. Lábios fechados, sem caretas de gamer.',
         visual: 'Luz suave de abajur de sala e luz natural difusa. Cores quentes de ambiente doméstico. Zero néon roxo/azul clichê.'
@@ -2007,7 +2267,7 @@ export function interpretUserIntent(
     return {
       approachTitle: 'Foco no Hardware & Apresentação Direta',
       hasPerson: true,
-      subjectEn: 'The creator holding the handheld device naturally toward the camera with anatomically plausible hands, natural grip around the object, correct visible finger count according to pose and natural occlusion, no duplicated or fused fingers, no fingers intersecting the product, and physically believable hand-to-object contact',
+      subjectEn: `The creator holding the ${isHandheldDevice ? 'handheld device' : 'device'} naturally toward the camera with anatomically plausible hands, natural grip around the object, correct visible finger count according to pose and natural occlusion, no duplicated or fused fingers, no fingers intersecting the product, and physically believable hand-to-object contact`,
       contextEn: hasExplicitEnv
         ? resolvedContextEn
         : 'Minimal neutral background with soft optical falloff, keeping undivided focus on the device and creator without domestic clutter',
@@ -2026,7 +2286,32 @@ export function interpretUserIntent(
     };
   }
 
-  // General Scene Archetype: General Tech Teardown (No person)
+  // General Scene Archetype: Product Hero (No person, device NOT opened)
+  // "Só o teclado em cima da mesa" must stay an assembled product shot, not a teardown.
+  if (!hasPerson && isTech && !isTeardownRequest) {
+    return {
+      approachTitle: 'Produto em Destaque',
+      hasPerson: false,
+      subjectEn: 'The device described in the scene as the single hero object, fully assembled, with authentic industrial geometry, real button and port layout, and an instantly recognizable silhouette',
+      contextEn: hasExplicitEnv
+        ? resolvedContextEn
+        : 'Clean neutral surface with soft optical falloff, keeping undivided focus on the product without unrelated props',
+      lightingEn: hasExplicitEnv
+        ? resolvedLightingEn
+        : 'Soft directional key light revealing true materials and edges without specular glare or unmotivated RGB neon',
+      compositionEn: 'Product filling a large share of the frame at a slight three-quarter angle, readable at 120px mobile thumbnail scale, with intentional negative space',
+      expressionEn: 'None (pure product shot without human presence)',
+      directionPt: {
+        ideia: 'O produto pedido é o protagonista, mostrado como ele realmente é, sem desmontar nem inventar acessórios.',
+        foco: 'O dispositivo inteiro, grande no quadro, com formato, botões e acabamento reconhecíveis em tamanho de miniatura.',
+        composicao: 'Ângulo de três quartos com o produto ocupando boa parte do quadro e espaço negativo intencional.',
+        expressao: 'Nenhuma (cena de produto sem presença humana).',
+        visual: 'Luz direcional suave revelando materiais reais, sem reflexos estourados ou néon sem motivo.'
+      }
+    };
+  }
+
+  // General Scene Archetype: General Tech Teardown (No person, opened/disassembled device requested)
   if (!hasPerson && isTech) {
     return {
       approachTitle: 'Bancada Técnica de Precisão',
@@ -2050,7 +2335,33 @@ export function interpretUserIntent(
     };
   }
 
-  // General Scene Archetype: Pure Environment / Space / Mystery (No person)
+  // General Scene Archetype: Faithful Main Subject (No person, no tech, not an urbex/mystery place)
+  // Food, landmarks, cars, animals... are drawn as described instead of as a mossy ruin.
+  const isMysteryPlace = /(abandonad|ru[ií]na|mist[ée]rio|misterios|assombrad|caverna|t[úu]nel|bunker|escombro|urbex|lugar\s*proibido|explorando)/i.test(combined);
+  if (!hasPerson && !isTech && !isMysteryPlace) {
+    return {
+      approachTitle: 'Assunto Principal em Destaque',
+      hasPerson: false,
+      subjectEn: 'The main subject exactly as described in the scene, presented as one clear dominant focal point with its authentic real-world shape, materials, and recognizable details',
+      contextEn: hasExplicitEnv
+        ? resolvedContextEn
+        : 'Clean uncluttered background with soft optical falloff that supports the main subject without inventing unrelated props or settings',
+      lightingEn: hasExplicitEnv
+        ? resolvedLightingEn
+        : 'Clean motivated natural key light with soft shadow falloff, revealing true color and texture without artificial glare',
+      compositionEn: 'Single dominant subject filling a large share of the frame, readable at 120px mobile thumbnail scale, with intentional negative space',
+      expressionEn: 'None (no human presence requested)',
+      directionPt: {
+        ideia: 'O próprio assunto descrito é o protagonista: a imagem mostra exatamente o que foi pedido, sem elementos inventados.',
+        foco: 'Um único ponto focal dominante — o assunto principal da ideia — nítido e reconhecível mesmo em tamanho reduzido.',
+        composicao: 'Assunto grande no quadro, recorte firme e espaço negativo intencional para leitura rápida no feed.',
+        expressao: 'Nenhuma (cena sem presença humana).',
+        visual: 'Luz natural motivada revelando cor e textura reais. Sem néon, sem partículas, sem cenário inventado.'
+      }
+    };
+  }
+
+  // General Scene Archetype: Pure Environment / Space / Mystery (No person, abandoned/mysterious place requested)
   if (!hasPerson && !isTech) {
     return {
       approachTitle: 'Atmosfera e Textura Espacial',
@@ -2156,6 +2467,12 @@ export function generateSimpleThumbnail(
   input: CreateThumbnailInput,
   options?: {
     researchResults?: ResearchResult | ResearchResult[] | null;
+    /**
+     * A ScenePlan already resolved upstream (director reconciliation + complementary merge),
+     * as done by POST /api/ai/simple-create. When given, the plan is used as-is so the API
+     * and this function render through exactly the same prompt path.
+     */
+    plan?: ScenePlan;
   }
 ): CreateThumbnailResult {
   const {
@@ -2170,28 +2487,35 @@ export function generateSimpleThumbnail(
     targetModel = 'GERAL',
     aspectRatio = '16:9',
     stylePreset = 'Natural',
-    realismLevel = 'Alto',
     preserveFace,
     preserveProduct,
     extraInstructions,
     approachIndex = 0
   } = input;
 
-  // 0. Hidden Pipeline: Intent Router, Target/Source Resolution & ScenePlan
-  const scenePlan = buildScenePlan(input, approachIndex);
-
-  // 0.5 Complementary Pass (Theme Context, Research Facts, Physical Interaction, Spatial Hierarchy)
-  // Strictly conditional on master kill switch COMPLEMENTARY_ENGINES_ENABLED=true
   const complementaryEnabled = isComplementaryEnginesEnabled();
-  const themeCtx = complementaryEnabled ? resolveThemeContext(input, scenePlan) : undefined;
-  const rawFacts = (complementaryEnabled && options?.researchResults)
-    ? (Array.isArray(options.researchResults) ? options.researchResults.flatMap(r => r.facts) : options.researchResults.facts)
-    : undefined;
-  const interactionPlan = complementaryEnabled ? planPhysicalInteraction(input, scenePlan, themeCtx, rawFacts) : undefined;
-  const spatialPlan = complementaryEnabled ? planSpatialHierarchy(input, scenePlan, themeCtx, interactionPlan) : undefined;
-  const enrichedPlan = complementaryEnabled
-    ? mergeComplementaryPlan(scenePlan, input, themeCtx, options?.researchResults, interactionPlan, spatialPlan)
-    : scenePlan;
+  let enrichedPlan: ScenePlan;
+  let themeCtx: ScenePlan['themeContext'];
+
+  if (options?.plan) {
+    enrichedPlan = options.plan;
+    themeCtx = options.plan.themeContext;
+  } else {
+    // 0. Hidden Pipeline: Intent Router, Target/Source Resolution & ScenePlan
+    const scenePlan = buildScenePlan(input, approachIndex);
+
+    // 0.5 Complementary Pass (Theme Context, Research Facts, Physical Interaction, Spatial Hierarchy)
+    // Strictly conditional on master kill switch COMPLEMENTARY_ENGINES_ENABLED=true
+    themeCtx = complementaryEnabled ? resolveThemeContext(input, scenePlan) : undefined;
+    const rawFacts = (complementaryEnabled && options?.researchResults)
+      ? (Array.isArray(options.researchResults) ? options.researchResults.flatMap(r => r.facts) : options.researchResults.facts)
+      : undefined;
+    const interactionPlan = complementaryEnabled ? planPhysicalInteraction(input, scenePlan, themeCtx, rawFacts) : undefined;
+    const spatialPlan = complementaryEnabled ? planSpatialHierarchy(input, scenePlan, themeCtx, interactionPlan) : undefined;
+    enrichedPlan = complementaryEnabled
+      ? mergeComplementaryPlan(scenePlan, input, themeCtx, options?.researchResults, interactionPlan, spatialPlan)
+      : scenePlan;
+  }
 
   // If this is an edit / reconstruction task (IDENTITY_TRANSFER, REPLACE_OBJECT, CHANGE_ENVIRONMENT)
   if (
@@ -2200,9 +2524,11 @@ export function generateSimpleThumbnail(
     enrichedPlan.taskType === 'CHANGE_ENVIRONMENT'
   ) {
     const builderResult = buildPromptFromScenePlan(enrichedPlan, input, approachIndex);
+    // Same Provenance Guard the API has always applied to edit prompts.
+    const editAudit = auditPromptProvenance(builderResult.finalPrompt, enrichedPlan, references);
     return {
       direction: builderResult.directionPt,
-      finalPrompt: builderResult.finalPrompt,
+      finalPrompt: editAudit.cleanedPrompt,
       approachTitle: builderResult.approachTitle,
       approachIndex,
       typographyPlan: builderResult.typographyPlan,
@@ -2317,7 +2643,7 @@ export function generateSimpleThumbnail(
   }
 
   // Build clean prompt body (Neutral by default, no forced "cinematic" unless requested)
-  const cleanIdea = ideaDescription.trim() || videoTitle.trim();
+  const cleanIdea = resolveSceneDescription(input, Boolean(enrichedPlan.targetImage));
   const arParam = aspectRatio === '9:16' ? '9:16 vertical format' : '16:9 widescreen format';
   const styleTreatment = stylePreset !== 'Natural' ? `${stylePreset} visual treatment, ` : '';
 
@@ -2408,13 +2734,25 @@ ENVIRONMENT & OPTICS: ${contextEn}. ${styleTreatment}${depthOfField}, tangible m
     typographyDirective = `Reserve clean, uncluttered negative space on the ${posStr} of the composition specifically for post-production typography ("${thumbnailText.trim()}"). Do not bake distorted AI typography directly into the pixels.`;
   }
 
+  // Same lock decisions as the GERAL PRESERVATION LOCKS above, handed to every model adapter.
+  const subject: NewSceneSubject = {
+    hasPerson,
+    identityRefs: hasPersonRef && hasPerson ? personRefs : [],
+    productLock: hasProductRef || isTech,
+    productRefs,
+    productFacts: (enrichedPlan.researchFacts || [])
+      .filter(f => f.category === 'PRODUCT_GEOMETRY' || f.category === 'CONTROL_LAYOUT' || f.category === 'SILHOUETTE')
+      .map(f => f.fact)
+  };
+
   // Model-specific adjustments rendered via central dispatcher
   let finalPrompt = renderPromptForTargetModel({
     plan: enrichedPlan,
     input,
     basePrompt: promptBody,
     typographyDirective,
-    arParam: aspectRatio === '9:16' ? '9:16 vertical format' : '16:9 widescreen format'
+    arParam: aspectRatio === '9:16' ? '9:16 vertical format' : '16:9 widescreen format',
+    subject
   });
 
   // Audit prompt through Provenance Guard to strip any unsupported defaults or leakage

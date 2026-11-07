@@ -781,6 +781,8 @@ export interface AnalyzeThumbnailSimpleResult {
   aiLooking: string[];
   topProblem: string;
   fixPrompt: string;
+  /** True when no multimodal director inspected the image (title-based heuristic only). */
+  isLocal?: boolean;
 }
 
 export interface SimpleHistoryItem {

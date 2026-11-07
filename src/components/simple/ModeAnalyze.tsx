@@ -62,7 +62,7 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount }: ModeAnalyzeProp
       if (res.ok) {
         data = await res.json();
       } else {
-        data = analyzeThumbnailLocally(videoTitle);
+        data = { ...analyzeThumbnailLocally(videoTitle), isLocal: true };
       }
 
       setResult(data);
@@ -75,11 +75,11 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount }: ModeAnalyzeProp
       });
       onRefreshHistoryCount();
 
-      onNotify('Auditoria visual concluída!');
+      onNotify(data.isLocal ? 'Análise genérica concluída (imagem não examinada).' : 'Auditoria visual concluída!');
     } catch {
-      const fallback = analyzeThumbnailLocally(videoTitle);
+      const fallback = { ...analyzeThumbnailLocally(videoTitle), isLocal: true };
       setResult(fallback);
-      onNotify('Análise concluída pelo motor local.');
+      onNotify('Análise genérica concluída (imagem não examinada).');
     } finally {
       setIsLoading(false);
     }
@@ -239,6 +239,12 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount }: ModeAnalyzeProp
 
             {result && (
               <div className="space-y-4 animate-in fade-in duration-300">
+                {result.isLocal && (
+                  <div role="note" className="p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-xs text-amber-100 leading-relaxed font-sans">
+                    <strong className="font-semibold">Análise genérica — a imagem não foi examinada.</strong>{' '}
+                    Sem um diretor visual configurado, o motor local só usa o título do vídeo. Os pontos abaixo são verificações comuns para esse tipo de thumbnail, não observações da sua imagem. Confira cada um antes de aplicar o prompt corretivo.
+                  </div>
+                )}
                 {/* O Que Funciona */}
                 <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-2.5">
                   <span className="text-xs font-mono font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-2 border-b border-zinc-800/80 pb-2">
