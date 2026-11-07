@@ -73,3 +73,22 @@ Result: `main` = production; every other branch gets
 - https://developers.cloudflare.com/workers/framework-guides/automatic-configuration/
 - https://developers.cloudflare.com/workers/framework-guides/web-apps/opennext/
 - https://opennext.js.org/cloudflare/get-started
+
+## 4. Free AI additions (branch `feat/cycle6-fidelity-ci`, 2026-11-07)
+
+- `wrangler.jsonc` now uses a custom entry (`main: cloudflare-worker.ts`) that re-exports the OpenNext
+  handler plus the `FreeAiBudget` Durable Object, and adds the `AI` binding, `FREE_AI_*` vars and a
+  `durable_objects` binding with migration `v1-free-ai-budget` (`new_sqlite_classes`). The build
+  command must stay `npx opennextjs-cloudflare build` (it creates `.open-next/worker.js`, which the
+  entry imports); the deploy/preview commands are unchanged (`npx wrangler deploy` / `npx wrangler
+  preview`).
+- The first deploy that includes the migration creates the Durable Object class on the account. It is
+  free on the Workers Free plan (SQLite-backed). Removing it later needs a follow-up migration with
+  `deleted_classes: ["FreeAiBudget"]`, which deletes its stored counters (only daily Neuron totals).
+- Previews get their own Durable Object namespace and their own ledger (cap 2000 Neurons/day in
+  `previews.vars`), but all Workers AI usage on the account shares the same 10,000 free Neurons/day.
+- Verified locally with the real runtime (`wrangler dev`): bindings `FREE_AI_BUDGET`, `AI`,
+  `WORKER_SELF_REFERENCE`, `IMAGES`, `ASSETS`; real Workers AI answers in all three modes.
+- The OpenNext build prints "no such Durable Object class is exported from the worker": it runs the
+  generated `worker.js` for a build-time step; the deployed entry (`cloudflare-worker.ts`) exports
+  the class, and `wrangler dev` / `wrangler deploy --dry-run` show no such warning.
