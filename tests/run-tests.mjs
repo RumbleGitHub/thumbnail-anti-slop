@@ -2933,6 +2933,21 @@ console.log('\n38. Testando separação de cena, exclusões e pedidos sobre a im
     assert.equal(p.scene, scene, `cena de "${idea}"`);
     assert.deepEqual(p.exclusionsEn, exclusions, `exclusões de "${idea}"`);
   }
+  // Realistic Portuguese, mixed language, quotes and typos: text that holds no removable
+  // exclusion comes back EXACTLY as typed; quoted overlay text is never parsed as instructions.
+  const untouched = [
+    'eu segurando um PS2', 'quero aparecer ao lado do console', 'com o celular na mão',
+    'um ambiente escuro, mas natural', 'comparando iPhone e Galaxy', 'texto exato: NÃO COMPRE',
+    'minha expressão deve continuar natural', 'Eu segurando o PS2... olhando pra câmera',
+    'e aí, eu segurando o controle', 'eu segurando um controle e', 'escrito “SEM NEON” no letreiro',
+    'me holding a PS5 controller, no neon, natural light', 'Évora ao fundo, eu sorrindo 😄',
+    'São Paulo à noite, eu na janela', 'escrito "SEM NEON E SEM IA" na placa',
+  ];
+  for (const idea of untouched) assert.equal(parseCreatorIdea(idea).scene, idea, `intocado: "${idea}"`);
+  assert.equal(parseCreatorIdea('escrito "VÍDEO VIRAL" na tela, sem neon').scene, 'escrito "VÍDEO VIRAL" na tela', 'texto entre aspas preservado');
+  assert.deepEqual(parseCreatorIdea('não quero parecer IA').exclusionsEn, ['synthetic AI-generated look']);
+  assert.equal(parseCreatorIdea('eu na minha mesa, não quero parecer feito por IA').scene, 'eu na minha mesa');
+  assert.equal(parseCreatorIdea('eu segurando o celuar na mao sem neon').scene, 'eu segurando o celuar na mao', 'erros de digitação ficam como estão');
   console.log('  ✓ TEST 38.1: Exclusões conhecidas e palavras "meta" saem da cena; "sem camisa"/"sem fumaça" (conteúdo) ficam.');
 
   // 38.2 "sem neon" no longer disables the neon avoid term, and reaches every adapter as an exclusion.
@@ -3081,6 +3096,17 @@ console.log('\n40. Testando IA gratuita (Workers AI simulado): limites, privacid
   // Invented domestic setting (seen live with the 8B model) is rejected too.
   wai.setWorkersAiBindingForTests(fakeAi('{"changes":["x"],"improvedPrompt":"A young man sitting in a cozy living room holding a PS5, natural window light"}'));
   assert.equal((await improveWithFreeText({ rawPrompt: 'guy holding ps5, neon glow, 8k', targetModel: 'GERAL' })).failed, 'invented-setting', 'Cenário doméstico inventado = descartado');
+  // A setting the creator asked for in Portuguese is not "invented" (environment fidelity).
+  wai.setWorkersAiBindingForTests(fakeAi('{"changes":["x"],"improvedPrompt":"A young man in his bedroom holding a PS5, natural window light, text \\"VALE A PENA?\\""}'));
+  const quarto = await improveWithFreeText({ rawPrompt: 'eu no meu quarto segurando o PS5, neon, 8k, texto "VALE A PENA?"', targetModel: 'GERAL' });
+  assert.ok(!quarto.failed, 'Quarto pedido em português = aceito');
+  assert.match(quarto.improvedPrompt, /bedroom/);
+  // Stray punctuation from the model is repaired outside quotes; "..." and quoted text untouched.
+  const { tidyModelPunctuation } = await import('../src/lib/ai/free/freeFeatures.ts');
+  assert.equal(tidyModelPunctuation('looking off-camera. . The text "WAIT.. WHAT ?" is visible , calm...'), 'looking off-camera. The text "WAIT.. WHAT ?" is visible, calm...');
+  wai.setWorkersAiBindingForTests(fakeAi('{"changes":["x"],"improvedPrompt":"A guy looking at something off-camera. . The text \\"VALE A PENA?\\" is visible in the image."}'));
+  const dots = await improveWithFreeText({ rawPrompt: 'guy shocked face, red arrow, text "VALE A PENA?"', targetModel: 'GERAL' });
+  assert.ok(!/\.\s+\./.test(dots.improvedPrompt), 'Sem ". ." no prompt final');
   wai.setWorkersAiBindingForTests(fakeAi('not json'));
   assert.equal((await improveWithFreeText({ rawPrompt: 'guy holding ps5 neon', targetModel: 'GERAL' })).failed, 'unusable-answer', 'JSON inválido = motor local');
   // Live answer through the Workers binding without the final "}" (2026-11-07): still usable.

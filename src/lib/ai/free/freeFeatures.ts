@@ -116,6 +116,20 @@ const IMPROVE_SYSTEM = `You rewrite image-generation prompts for YouTube thumbna
 Rules: keep the user's real subject, action, products and setting; never invent a new setting; remove clichés (neon glow, particles, "8k", "ultra detailed", shocked open mouth, random arrows/circles, fake bokeh); use motivated natural light and a natural expression; copy any text in double quotes EXACTLY, never translate it.
 Reply with JSON only: {"changes": ["3 to 5 short items in Brazilian Portuguese explaining what you removed or clarified"], "improvedPrompt": "the rewritten English prompt"}`;
 
+const DOMESTIC_EN = /\b(living\s*room|bedroom|sofa|couch|cozy\s+(?:room|home)|home\s+office|desk\s+lamp)\b/i;
+const DOMESTIC_PT = /(?<!\p{L})(quarto|sala(?:\s+de\s+estar)?|sof[aá]|escrit[oó]rio|home\s*office|lumin[aá]ria|minha\s+casa|em\s+casa)(?!\p{L})/iu;
+
+/** Repairs stray punctuation in a model rewrite (". ." / " ,"), never inside quoted text or "...". */
+export function tidyModelPunctuation(text: string): string {
+  return text
+    .split(/("[^"]*"|“[^”]*”)/)
+    .map((part, i) => (i % 2 === 1 ? part : part
+      .replace(/(?<!\.)\.(?:\s*\.)+(?!\.)/g, m => (/^\.\.\.$/.test(m) ? m : '.'))
+      .replace(/[ \t]+([,;:!?])/g, '$1')
+      .replace(/[ \t]+\.(?!\.)/g, '.')))
+    .join('');
+}
+
 /** Quoted strings that must survive any rewrite ("VALE A PENA?"). */
 export function quotedTexts(prompt: string): string[] {
   return [...prompt.matchAll(/"([^"]{1,80})"|“([^”]{1,80})”/g)].map(m => (m[1] || m[2]).trim()).filter(Boolean);
@@ -142,10 +156,10 @@ export async function improveWithFreeText(
   // Exact text is sacred: if the model dropped or altered any quoted text, discard the rewrite.
   if (quotedTexts(raw).some(t => !rewritten.includes(t))) return { failed: 'exact-text-lost' };
   // Never accept an invented domestic setting (project rule; the 8B model did this in 3/4 benchmark cases).
-  const domestic = /\b(living\s*room|bedroom|sofa|couch|cozy\s+(?:room|home)|home\s+office|desk\s+lamp)\b/i;
-  if (domestic.test(rewritten) && !domestic.test(raw)) return { failed: 'invented-setting' };
+  // A setting the creator asked for, in English or Portuguese, is not invented.
+  if (DOMESTIC_EN.test(rewritten) && !DOMESTIC_EN.test(raw) && !DOMESTIC_PT.test(raw)) return { failed: 'invented-setting' };
 
-  const engineOut = improvePrompt({ ...input, rawPrompt: rewritten });
+  const engineOut = improvePrompt({ ...input, rawPrompt: tidyModelPunctuation(rewritten) });
   const modelChanges = Array.isArray(parsed?.changes) ? parsed.changes.filter((c): c is string => typeof c === 'string').map(c => clean(c, 200)) : [];
   const changes = [...modelChanges.map(c => `IA: ${c}`), ...engineOut.changes].filter(Boolean).slice(0, 6);
 

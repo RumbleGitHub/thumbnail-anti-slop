@@ -19,6 +19,7 @@ const EXCLUSION_TERMS: { re: RegExp; en: string }[] = [
   { re: /^(?:luz(?:es)?\s+)?neon(?:s)?(?:\s+\p{L}+)?$/u, en: 'neon lighting' },
   { re: /^(?:a\s+)?(?:cara|apar[eê]ncia|jeito|visual|estilo)\s+(?:de\s+)?(?:ia|ai|intelig[eê]ncia\s+artificial)$/u, en: 'synthetic AI-generated look' },
   { re: /^(?:ia|ai)$/u, en: 'synthetic AI-generated look' },
+  { re: /^(?:parecer|ficar\s+com\s+cara\s+de|ter\s+cara\s+de)\s+(?:(?:feit[oa]\s+(?:por|com|de)\s+|gerad[oa]\s+por\s+)?(?:ia|ai|intelig[eê]ncia\s+artificial)|artificial|fake)$/u, en: 'synthetic AI-generated look' },
   { re: /^(?:os\s+)?exageros?$|^(?:nada\s+)?exagerad[oa]s?$/u, en: 'exaggerated effects' },
   { re: /^(?:as\s+)?setas?(?:\s+vermelhas?)?$/u, en: 'arrows' },
   { re: /^(?:os\s+)?c[ií]rculos?(?:\s+vermelhos?)?$/u, en: 'circles' },
@@ -107,13 +108,21 @@ function tidy(text: string): string {
     .trim();
 }
 
+// Quoted text is what the creator wants written in the image: never parsed as instructions.
+const QUOTED = /"[^"\n]*"|“[^”\n]*”|«[^»\n]*»/gu;
+const QUOTE_MARK = (i: number) => `\uE000${i}\uE001`; // private-use characters: never typed by creators
+
 export function parseCreatorIdea(idea: string): ParsedIdea {
   const original = (idea || '').trim();
   if (!original) return { scene: '', exclusionsEn: [], exclusionsRaw: [], metaRemoved: [] };
 
+  const quoted: string[] = [];
+  const masked = original.replace(QUOTED, q => QUOTE_MARK(quoted.push(q) - 1));
+  const unmask = (text: string) => text.replace(/\uE000(\d+)\uE001/gu, (_m, i: string) => quoted[Number(i)]);
+
   const exclusionsEn: string[] = [];
   const exclusionsRaw: string[] = [];
-  let scene = original.replace(NEGATION_SPAN, (span: string, _full: string, object: string) => {
+  let scene = masked.replace(NEGATION_SPAN, (span: string, _full: string, object: string) => {
     // "sem neon ou exageros" -> ["neon", "exageros"]; every part must be a known effect/style.
     const parts = object.split(/\s+(?:ou|e|nem|or|and)\s+|\s*\/\s*/iu).map(normalizeObject).filter(Boolean);
     const terms = parts.map(part => EXCLUSION_TERMS.find(t => t.re.test(part)));
@@ -136,8 +145,13 @@ export function parseCreatorIdea(idea: string): ParsedIdea {
     });
   }
 
-  scene = tidy(scene);
+  // Nothing was removed: return the creator's text exactly as written (no punctuation or
+  // connector "cleanup" on text this function did not change: "e aí", a trailing "e", "...").
+  if (exclusionsRaw.length === 0 && metaRemoved.length === 0) {
+    return { scene: original, exclusionsEn, exclusionsRaw, metaRemoved };
+  }
+  scene = unmask(tidy(scene));
   // Only instructions, nothing to draw: callers fall back to the video title.
   if (!/\p{L}{2,}/u.test(scene)) scene = '';
-  return { scene, exclusionsEn, exclusionsRaw, metaRemoved };
+  return { scene, exclusionsEn, exclusionsRaw: exclusionsRaw.map(unmask), metaRemoved };
 }
