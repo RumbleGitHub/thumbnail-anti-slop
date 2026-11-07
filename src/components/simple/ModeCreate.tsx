@@ -1,17 +1,21 @@
 'use client';
 
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
-  Wand2,
+  WandSparkles,
   Copy,
   Check,
   Upload,
   X,
   RotateCcw,
-  Sparkles,
+  RefreshCw,
+  ImagePlus,
   AlertTriangle,
   Type,
   Settings,
+  ChevronDown,
+  RectangleHorizontal,
+  RectangleVertical,
   Info
 } from 'lucide-react';
 import {
@@ -28,6 +32,18 @@ import {
 } from '@/types/simple';
 import { generateSimpleThumbnail } from '@/lib/simpleEngine/engine';
 import { saveSimpleHistoryItem } from '@/lib/simpleEngine/history';
+import {
+  focusRing,
+  fieldLabel,
+  subLabel,
+  fieldSurface,
+  smallField,
+  secondaryButton,
+  secondaryIdle,
+  secondaryActive,
+  panelSurface,
+  segmentClass
+} from './ui';
 
 const ALL_ROLES: SimpleReferenceRole[] = [
   'PESSOA',
@@ -40,6 +56,18 @@ const ALL_ROLES: SimpleReferenceRole[] = [
   'OUTRA'
 ];
 
+// Display names only; the stored role values are unchanged.
+const ROLE_LABEL: Record<SimpleReferenceRole, string> = {
+  PESSOA: 'Pessoa (rosto)',
+  PRODUTO: 'Produto',
+  CENÁRIO: 'Cenário',
+  IMAGEM_ALVO: 'Imagem-alvo',
+  ESTILO: 'Estilo',
+  COMPOSIÇÃO: 'Composição',
+  TIPOGRAFIA: 'Tipografia',
+  OUTRA: 'Outra'
+};
+
 const ROLE_MICROCOPY: Record<SimpleReferenceRole, string> = {
   PESSOA: 'Preserva traços, rosto e aparência real.',
   PRODUTO: 'Preserva formato, botões e detalhes reais do objeto.',
@@ -51,9 +79,31 @@ const ROLE_MICROCOPY: Record<SimpleReferenceRole, string> = {
   OUTRA: 'Referência geral de apoio.'
 };
 
+const TEXT_TREATMENTS: { id: TextTreatment; label: string }[] = [
+  { id: 'AUTO', label: 'Automático' },
+  { id: 'USAR_REFERENCIA', label: 'Usar referência' },
+  { id: 'SEM_TEXTO', label: 'Sem texto' }
+];
+
+const RESERVED_POSITIONS: { id: ReservedSpacePosition; label: string }[] = [
+  { id: 'ESQUERDA', label: 'Esquerda' },
+  { id: 'DIREITA', label: 'Direita' },
+  { id: 'SUPERIOR', label: 'Superior' },
+  { id: 'INFERIOR', label: 'Inferior' }
+];
+
 interface ModeCreateProps {
   onNotify: (msg: string) => void;
   onRefreshHistoryCount: () => void;
+}
+
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target?.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 export function ModeCreate({ onNotify, onRefreshHistoryCount }: ModeCreateProps) {
@@ -67,7 +117,7 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount }: ModeCreateProps)
   const [reservedSpacePosition, setReservedSpacePosition] = useState<ReservedSpacePosition>('DIREITA');
   const [references, setReferences] = useState<SimpleReference[]>([]);
 
-  // Toggles for inline drawers
+  // Inline panels
   const [showTextPanel, setShowTextPanel] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -90,6 +140,17 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount }: ModeCreateProps)
   const [isDragging, setIsDragging] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+  const replacingIdRef = useRef<string | null>(null);
+  const ideaRef = useRef<HTMLTextAreaElement>(null);
+  const thumbTextRef = useRef<HTMLInputElement>(null);
+  const referencesSectionRef = useRef<HTMLElement>(null);
+  const addReferenceRef = useRef<HTMLButtonElement>(null);
+  const resultRef = useRef<HTMLDivElement>(null);
+  const inFlightRef = useRef(false);
+  const scrollToResultRef = useRef(false);
+
+  const canGenerate = Boolean(videoTitle.trim() || ideaDescription.trim());
 
   // Helper for word count on thumbnail text
   const textWords = thumbnailText.trim() ? thumbnailText.trim().split(/\s+/).length : 0;
@@ -145,43 +206,94 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount }: ModeCreateProps)
     return chips;
   }, [videoTitle, ideaDescription, references]);
 
+  // Focus the exact-text field when the text panel opens
+  useEffect(() => {
+    if (showTextPanel && textTreatment !== 'SEM_TEXTO') {
+      thumbTextRef.current?.focus();
+    }
+    // Only when the panel opens, not on every treatment change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showTextPanel]);
+
+  // Bring a fresh result into view
+  useEffect(() => {
+    if (result && scrollToResultRef.current) {
+      scrollToResultRef.current = false;
+      resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [result]);
+
+  const openFilePicker = () => fileInputRef.current?.click();
+
   // Handle image upload with auto-role detection
   const handleFiles = (files: FileList | null) => {
-    if (!files) return;
-    Array.from(files).forEach(file => {
-      if (!file.type.startsWith('image/')) return;
-      const reader = new FileReader();
-      reader.onload = e => {
-        const url = e.target?.result as string;
-        const nameLower = file.name.toLowerCase();
-        let role: SimpleReferenceRole = 'OUTRA';
-        if (nameLower.includes('alvo') || nameLower.includes('target') || nameLower.includes('personagem') || nameLower.includes('character') || nameLower.includes('crimson')) {
-          role = 'IMAGEM_ALVO';
-        } else if (nameLower.includes('face') || nameLower.includes('rosto') || nameLower.includes('me') || nameLower.includes('eu')) {
-          role = 'PESSOA';
-          setPreserveFace(true);
-        } else if (nameLower.includes('legion') || nameLower.includes('console') || nameLower.includes('produto') || nameLower.includes('phone') || nameLower.includes('hardware')) {
-          role = 'PRODUTO';
-          setPreserveProduct(true);
-        } else if (nameLower.includes('sala') || nameLower.includes('quarto') || nameLower.includes('cenario') || nameLower.includes('room') || nameLower.includes('fundo') || nameLower.includes('desk')) {
-          role = 'CENÁRIO';
-        } else if (nameLower.includes('fonte') || nameLower.includes('font') || nameLower.includes('type') || nameLower.includes('texto')) {
-          role = 'TIPOGRAFIA';
-          setTextTreatment('USAR_REFERENCIA');
-        }
+    if (!files || files.length === 0) return;
+    const all = Array.from(files);
+    const images = all.filter(file => file.type.startsWith('image/'));
+    const skipped = all.length - images.length;
 
-        setReferences(prev => [
-          ...prev,
-          {
-            id: `ref-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-            name: file.name,
-            url,
-            role
+    images.forEach(file => {
+      readAsDataUrl(file)
+        .then(url => {
+          const nameLower = file.name.toLowerCase();
+          let role: SimpleReferenceRole = 'OUTRA';
+          if (nameLower.includes('alvo') || nameLower.includes('target') || nameLower.includes('personagem') || nameLower.includes('character') || nameLower.includes('crimson')) {
+            role = 'IMAGEM_ALVO';
+          } else if (nameLower.includes('face') || nameLower.includes('rosto') || nameLower.includes('me') || nameLower.includes('eu')) {
+            role = 'PESSOA';
+            setPreserveFace(true);
+          } else if (nameLower.includes('legion') || nameLower.includes('console') || nameLower.includes('produto') || nameLower.includes('phone') || nameLower.includes('hardware')) {
+            role = 'PRODUTO';
+            setPreserveProduct(true);
+          } else if (nameLower.includes('sala') || nameLower.includes('quarto') || nameLower.includes('cenario') || nameLower.includes('room') || nameLower.includes('fundo') || nameLower.includes('desk')) {
+            role = 'CENÁRIO';
+          } else if (nameLower.includes('fonte') || nameLower.includes('font') || nameLower.includes('type') || nameLower.includes('texto')) {
+            role = 'TIPOGRAFIA';
+            setTextTreatment('USAR_REFERENCIA');
           }
-        ]);
-      };
-      reader.readAsDataURL(file);
+
+          setReferences(prev => [
+            ...prev,
+            {
+              id: `ref-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+              name: file.name,
+              url,
+              role
+            }
+          ]);
+        })
+        .catch(() => onNotify(`Não foi possível ler ${file.name}.`));
     });
+
+    if (images.length > 0) {
+      const added = images.length === 1 ? '1 referência adicionada' : `${images.length} referências adicionadas`;
+      onNotify(skipped > 0 ? `${added}. ${skipped} arquivo(s) ignorado(s): use apenas imagens.` : `${added}. Confira o papel de cada uma.`);
+    } else if (skipped > 0) {
+      onNotify('Nenhuma imagem encontrada. Use arquivos JPG, PNG ou WebP.');
+    }
+  };
+
+  const startReplace = (id: string) => {
+    replacingIdRef.current = id;
+    replaceInputRef.current?.click();
+  };
+
+  // Replace the image of an existing reference, keeping its assigned role
+  const handleReplaceFile = (files: FileList | null) => {
+    const id = replacingIdRef.current;
+    replacingIdRef.current = null;
+    const file = files?.[0];
+    if (!id || !file) return;
+    if (!file.type.startsWith('image/')) {
+      onNotify('Use um arquivo de imagem para substituir a referência.');
+      return;
+    }
+    readAsDataUrl(file)
+      .then(url => {
+        setReferences(prev => prev.map(r => (r.id === id ? { ...r, url, name: file.name } : r)));
+        onNotify('Imagem substituída. O papel da referência foi mantido.');
+      })
+      .catch(() => onNotify(`Não foi possível ler ${file.name}.`));
   };
 
   const handleRoleChange = (id: string, role: SimpleReferenceRole) => {
@@ -213,14 +325,27 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount }: ModeCreateProps)
     setReferences(prev => prev.filter(r => r.id !== id));
   };
 
+  // Compact "Referências" button: open the picker when empty, otherwise show the strip
+  const handleReferencesButton = () => {
+    referencesSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (references.length === 0) {
+      openFilePicker();
+    } else {
+      addReferenceRef.current?.focus({ preventScroll: true });
+    }
+  };
+
   // Generate thumbnail direction & prompt
   const handleGenerate = async (forcedApproachIndex?: number) => {
+    if (inFlightRef.current) return;
     if (!videoTitle.trim() && !ideaDescription.trim()) {
       onNotify('Preencha ao menos o título do vídeo ou a descrição da sua ideia.');
+      ideaRef.current?.focus();
       return;
     }
 
     const currentApproach = forcedApproachIndex !== undefined ? forcedApproachIndex : approachCount;
+    inFlightRef.current = true;
     setIsLoading(true);
 
     try {
@@ -265,6 +390,7 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount }: ModeCreateProps)
         genResult = generateSimpleThumbnail(payload);
       }
 
+      scrollToResultRef.current = true;
       setResult(genResult);
 
       saveSimpleHistoryItem({
@@ -295,17 +421,28 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount }: ModeCreateProps)
         extraInstructions,
         approachIndex: currentApproach
       });
+      scrollToResultRef.current = true;
       setResult(fallback);
       onNotify('Prompt gerado pelo motor local anti-slop.');
     } finally {
+      inFlightRef.current = false;
       setIsLoading(false);
     }
   };
 
   const handleAnotherApproach = () => {
+    if (inFlightRef.current) return;
     const nextApproach = approachCount + 1;
     setApproachCount(nextApproach);
     handleGenerate(nextApproach);
+  };
+
+  // Ctrl/Cmd + Enter submits from the title or the idea field
+  const handleSubmitShortcut = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      handleGenerate();
+    }
   };
 
   const handleCopyPrompt = () => {
@@ -316,411 +453,382 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount }: ModeCreateProps)
     setTimeout(() => setCopied(false), 2500);
   };
 
+  const ctaState: 'loading' | 'ready' | 'empty' = isLoading ? 'loading' : canGenerate ? 'ready' : 'empty';
+  const AspectIcon = aspectRatio === '9:16' ? RectangleVertical : RectangleHorizontal;
+
   return (
-    <div className="space-y-6 max-w-6xl mx-auto py-2 sm:py-4">
-      {/* 1. TÍTULO DO VÍDEO (Direct & Sleek) */}
-      <div className="space-y-1.5">
-        <label className="text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-400 block">
-          Título do Vídeo
+    <div className="mx-auto max-w-5xl space-y-8 py-2 sm:py-4">
+      {/* 1. Título do vídeo */}
+      <div className="space-y-3">
+        <label htmlFor="create-title" className={fieldLabel}>
+          Título do vídeo
         </label>
         <input
+          id="create-title"
           type="text"
           value={videoTitle}
           onChange={e => setVideoTitle(e.target.value)}
+          onKeyDown={handleSubmitShortcut}
           placeholder="Ex: Troquei o Windows do meu Legion Go"
-          className="w-full bg-zinc-900/80 border border-zinc-800 hover:border-zinc-700 focus:border-amber-500 rounded-xl px-4 py-2.5 text-sm font-sans text-zinc-100 placeholder:text-zinc-500 focus:outline-none transition"
+          className={`${fieldSurface} h-14 px-5 text-base`}
         />
       </div>
 
-      {/* 2. COMPOSER PRINCIPAL (The Creative Hero) */}
-      <div className="bg-zinc-900/80 border border-zinc-800 focus-within:border-amber-500/80 rounded-2xl p-4 sm:p-5 transition shadow-lg relative">
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-300">
-            O Que Você Imagina?
+      {/* 2. Ideia (focal point) */}
+      <div className="space-y-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <label htmlFor="create-idea" className={fieldLabel}>
+            O que você imagina?
           </label>
-          <span className="text-xs text-zinc-500 font-sans hidden sm:inline">
-            Descreva em linguagem natural
-          </span>
+          <span className="hidden text-sm text-zinc-500 sm:inline">Descreva em linguagem natural</span>
         </div>
-
         <textarea
-          rows={4}
+          id="create-idea"
+          ref={ideaRef}
+          rows={5}
           value={ideaDescription}
           onChange={e => setIdeaDescription(e.target.value)}
-          placeholder="Descreva sua thumbnail como falaria com uma pessoa...&#10;&#10;Ex: Mostrando o Legion Go com o novo sistema instalado. Quero foco total no aparelho ligado e expressão autêntica, sem neon ou exageros."
-          className="w-full bg-transparent text-sm font-sans text-zinc-100 placeholder:text-zinc-500 focus:outline-none resize-y leading-relaxed"
+          onKeyDown={handleSubmitShortcut}
+          placeholder={'Descreva sua thumbnail como falaria com uma pessoa...\nEx: o Legion Go ligado na minha mão, expressão autêntica, sem neon.'}
+          className={`${fieldSurface} block min-h-[148px] resize-y px-5 py-4 text-base leading-relaxed`}
         />
 
-        {/* Contextual quick suggestion chips */}
         {contextualChips.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 pt-2.5 pb-1 border-t border-zinc-800/60 mt-2">
-            <span className="text-xs text-zinc-400 font-sans">Para ficar mais fiel:</span>
-            {contextualChips.map((chip, idx) => (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-zinc-500">Para ficar mais fiel:</span>
+            {contextualChips.map(chip => (
               <button
-                key={idx}
+                key={chip}
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-mono transition"
+                onClick={openFilePicker}
+                className={`h-8 rounded-lg border border-zinc-800 px-3 text-[13px] text-zinc-300 transition-colors hover:border-amber-500/50 hover:text-amber-200 ${focusRing}`}
               >
-                <span>{chip}</span>
+                {chip}
               </button>
             ))}
           </div>
         )}
+      </div>
 
-        {/* Inline Bottom Toolbar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-zinc-800/80 mt-2">
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            {/* + Referências */}
+      {/* 3. Action row */}
+      <div className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="grid grid-cols-2 gap-2.5 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800/80 hover:bg-zinc-800 text-zinc-300 hover:text-zinc-100 text-xs font-mono border border-zinc-700/60 transition"
+              onClick={handleReferencesButton}
+              className={`${secondaryButton} ${secondaryIdle}`}
             >
-              <Upload className="w-3.5 h-3.5 text-zinc-400" />
-              <span>+ Referências</span>
+              <Upload className="h-4 w-4 text-zinc-400" aria-hidden="true" />
+              <span>Referências</span>
               {references.length > 0 && (
-                <span className="px-1.5 py-0.2 text-[10px] rounded-full bg-amber-500 text-zinc-950 font-bold">
+                <span className="rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-zinc-950">
                   {references.length}
                 </span>
               )}
             </button>
 
-            {/* Aa Texto */}
             <button
               type="button"
               onClick={() => setShowTextPanel(prev => !prev)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border transition ${
-                showTextPanel || thumbnailText.trim()
-                  ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 font-bold'
-                  : 'bg-zinc-800/80 hover:bg-zinc-800 text-zinc-300 hover:text-zinc-100 border-zinc-700/60'
-              }`}
+              aria-expanded={showTextPanel}
+              aria-controls="create-text-panel"
+              className={`${secondaryButton} ${showTextPanel ? secondaryActive : secondaryIdle}`}
             >
-              <Type className="w-3.5 h-3.5" />
-              <span>Aa Texto</span>
-              {thumbnailText.trim() && (
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              <Type className="h-4 w-4" aria-hidden="true" />
+              <span>Texto</span>
+              {thumbnailText.trim() && textTreatment !== 'SEM_TEXTO' && (
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-400" aria-label="texto definido" />
               )}
             </button>
 
-            {/* Formato 16:9 / 9:16 toggle */}
-            <div className="flex items-center bg-zinc-800/80 rounded-lg p-0.5 border border-zinc-700/60">
-              <button
-                type="button"
-                onClick={() => setAspectRatio('16:9')}
-                className={`px-2 py-1 rounded text-xs font-mono transition ${
-                  aspectRatio === '16:9'
-                    ? 'bg-zinc-950 text-amber-400 font-bold'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
+            <div className="relative">
+              <AspectIcon
+                className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+                aria-hidden="true"
+              />
+              <select
+                value={aspectRatio}
+                onChange={e => setAspectRatio(e.target.value as '16:9' | '9:16')}
+                aria-label="Formato da thumbnail"
+                className={`${secondaryButton} ${secondaryIdle} w-full appearance-none bg-transparent pl-10 pr-9 [&>option]:bg-zinc-900`}
               >
-                16:9
-              </button>
-              <button
-                type="button"
-                onClick={() => setAspectRatio('9:16')}
-                className={`px-2 py-1 rounded text-xs font-mono transition ${
-                  aspectRatio === '9:16'
-                    ? 'bg-zinc-950 text-amber-400 font-bold'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                9:16
-              </button>
+                <option value="16:9">16:9</option>
+                <option value="9:16">9:16</option>
+              </select>
+              <ChevronDown
+                className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
+                aria-hidden="true"
+              />
             </div>
 
-            {/* ⚙ Avançado toggle */}
             <button
               type="button"
               onClick={() => setShowAdvanced(prev => !prev)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono border transition ${
-                showAdvanced
-                  ? 'bg-zinc-800 text-amber-400 border-zinc-700'
-                  : 'bg-zinc-800/80 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border-zinc-700/60'
-              }`}
+              aria-expanded={showAdvanced}
+              aria-controls="create-advanced-panel"
+              className={`${secondaryButton} ${showAdvanced ? secondaryActive : secondaryIdle}`}
             >
-              <Settings className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Avançado</span>
+              <Settings className="h-4 w-4" aria-hidden="true" />
+              <span>Avançado</span>
             </button>
           </div>
 
-          {/* Primary CTA Button */}
+          {/* Primary CTA */}
           <button
             type="button"
             onClick={() => handleGenerate()}
-            disabled={isLoading}
-            className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-mono font-bold text-xs tracking-wider uppercase transition flex items-center justify-center gap-2 shadow-md shadow-amber-500/20 active:scale-[0.98] shrink-0"
+            disabled={ctaState !== 'ready'}
+            aria-busy={ctaState === 'loading'}
+            title={ctaState === 'empty' ? 'Preencha o título ou descreva a ideia' : 'Gerar (Ctrl + Enter)'}
+            className={`inline-flex h-12 w-full shrink-0 items-center justify-center gap-2.5 rounded-xl px-7 text-sm font-bold uppercase tracking-[0.06em] transition-colors sm:w-auto ${focusRing} ${
+              ctaState === 'ready'
+                ? 'bg-amber-500 text-zinc-950 hover:bg-amber-400 active:bg-amber-600'
+                : ctaState === 'loading'
+                  ? 'cursor-wait bg-amber-500 text-zinc-950'
+                  : 'cursor-not-allowed bg-amber-500/40 text-zinc-950/70'
+            }`}
           >
-            {isLoading ? (
+            {ctaState === 'loading' ? (
               <>
-                <div className="w-3.5 h-3.5 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin" />
-                <span>DIRECIONANDO...</span>
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-950 border-t-transparent" aria-hidden="true" />
+                <span>Gerando...</span>
               </>
             ) : (
               <>
-                <Wand2 className="w-3.5 h-3.5 text-zinc-950" />
-                <span>GERAR THUMBNAIL PROMPT</span>
+                <WandSparkles className="h-4 w-4" aria-hidden="true" />
+                <span>Gerar thumbnail prompt</span>
               </>
             )}
           </button>
         </div>
-      </div>
 
-      {/* 2.1 TEXT DRAWER (Aa Texto) */}
-      {showTextPanel && (
-        <div className="bg-zinc-900/60 border border-zinc-800/90 rounded-2xl p-4 sm:p-5 space-y-4 animate-in fade-in duration-200">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <span className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-300">
-              Texto na Thumbnail
-            </span>
-            {textWords > 4 && textTreatment !== 'SEM_TEXTO' && (
-              <span className="text-[11px] font-sans text-amber-400 flex items-center gap-1">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                {textWords} palavras: textos longos perdem impacto em telas mobile
-              </span>
-            )}
-          </div>
-
-          {/* Tratamento */}
-          <div className="space-y-1.5">
-            <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider font-bold block">
-              Tratamento do Texto
-            </span>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => setTextTreatment('AUTO')}
-                className={`py-2 px-3 rounded-xl border text-xs font-mono transition text-left flex items-center justify-between ${
-                  textTreatment === 'AUTO'
-                    ? 'bg-amber-500/10 border-amber-500/50 text-amber-300 font-bold'
-                    : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <span>AUTO</span>
-                {textTreatment === 'AUTO' && <Check className="w-3.5 h-3.5 text-amber-400" />}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setTextTreatment('USAR_REFERENCIA')}
-                className={`py-2 px-3 rounded-xl border text-xs font-mono transition text-left flex items-center justify-between ${
-                  textTreatment === 'USAR_REFERENCIA'
-                    ? 'bg-amber-500/10 border-amber-500/50 text-amber-300 font-bold'
-                    : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <span className="truncate">USAR REFERÊNCIA</span>
-                {textTreatment === 'USAR_REFERENCIA' && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setTextTreatment('SEM_TEXTO')}
-                className={`py-2 px-3 rounded-xl border text-xs font-mono transition text-left flex items-center justify-between ${
-                  textTreatment === 'SEM_TEXTO'
-                    ? 'bg-amber-500/10 border-amber-500/50 text-amber-300 font-bold'
-                    : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <span>GERAR SEM TEXTO</span>
-                {textTreatment === 'SEM_TEXTO' && <Check className="w-3.5 h-3.5 text-amber-400" />}
-              </button>
-            </div>
-          </div>
-
-          {textTreatment !== 'SEM_TEXTO' && (
-            <div className="space-y-3 pt-1">
-              <div>
-                <input
-                  type="text"
-                  value={thumbnailText}
-                  onChange={e => setThumbnailText(e.target.value)}
-                  placeholder="Ex: AGORA FUNCIONA"
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs font-mono text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-amber-500 transition uppercase"
-                />
-                <p className="text-[11px] text-zinc-500 mt-1 font-sans">
-                  O texto é tratado literalmente (sem invenções adicionais de palavras).
-                </p>
-                {isTitleRepeatedInThumbnailText && (
-                  <div className="flex items-center gap-2 text-xs text-amber-300 font-sans bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 mt-2">
-                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                    <span>Seu texto está repetindo o título. Talvez a imagem possa entregar essa informação sozinha.</span>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block mb-1 font-bold">
-                  Referência de Fonte Real <span className="text-zinc-500 font-normal lowercase">(opcional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={fontName}
-                  onChange={e => setFontName(e.target.value)}
-                  placeholder="Ex: Bebas Neue, Anton, Inter, Impact, Oswald"
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-amber-500"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 text-[11px] text-zinc-400 bg-zinc-950/60 border border-zinc-800/80 rounded-xl px-3 py-2 font-sans">
-                <Info className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-                <span>Para máxima fidelidade tipográfica, gere a imagem sem texto e aplique a fonte depois no editor.</span>
-              </div>
-            </div>
-          )}
-
-          {/* Reservar Espaço */}
-          <div className="pt-2 border-t border-zinc-800/60 space-y-2">
-            <label className="flex items-center gap-2 cursor-pointer text-xs font-sans text-zinc-300">
-              <input
-                type="checkbox"
-                checked={reserveSpaceForText}
-                onChange={e => setReserveSpaceForText(e.target.checked)}
-                className="accent-amber-500 w-4 h-4 rounded"
-              />
-              <span className="font-medium">Reservar espaço limpo para texto na composição</span>
-            </label>
-
-            {reserveSpaceForText && (
-              <div className="flex flex-wrap gap-2 pl-6 pt-1">
-                {(['ESQUERDA', 'DIREITA', 'SUPERIOR', 'INFERIOR'] as ReservedSpacePosition[]).map(pos => (
+        {/* Text panel */}
+        {showTextPanel && (
+          <div id="create-text-panel" className={`${panelSurface} space-y-5`}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span className={fieldLabel}>Texto na thumbnail</span>
+              <div role="radiogroup" aria-label="Tratamento do texto" className="inline-flex w-full gap-1 rounded-xl border border-zinc-800 bg-[#111216] p-1 sm:w-auto">
+                {TEXT_TREATMENTS.map(option => (
                   <button
-                    key={pos}
+                    key={option.id}
                     type="button"
-                    onClick={() => setReservedSpacePosition(pos)}
-                    className={`text-[10px] font-mono px-3 py-1 rounded-lg border transition font-bold ${
-                      reservedSpacePosition === pos
-                        ? 'bg-amber-500 text-zinc-950 border-amber-500'
-                        : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-                    }`}
+                    role="radio"
+                    aria-checked={textTreatment === option.id}
+                    onClick={() => setTextTreatment(option.id)}
+                    className={`flex-1 sm:flex-initial ${segmentClass(textTreatment === option.id)}`}
                   >
-                    {pos}
+                    {option.label}
                   </button>
                 ))}
               </div>
+            </div>
+
+            {textTreatment !== 'SEM_TEXTO' && (
+              <div className="grid gap-4 sm:grid-cols-[2fr_1fr]">
+                <div className="space-y-2">
+                  <label htmlFor="create-thumb-text" className={subLabel}>
+                    Texto exato
+                  </label>
+                  <input
+                    id="create-thumb-text"
+                    ref={thumbTextRef}
+                    type="text"
+                    value={thumbnailText}
+                    onChange={e => setThumbnailText(e.target.value)}
+                    placeholder="Ex: AGORA FUNCIONA"
+                    className={smallField}
+                  />
+                  <p className="text-xs text-zinc-500">Usado exatamente como você escrever, sem palavras extras.</p>
+                  {textWords > 4 && (
+                    <p className="flex items-center gap-1.5 text-xs text-amber-300">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      {textWords} palavras: textos longos perdem impacto em telas mobile.
+                    </p>
+                  )}
+                  {isTitleRepeatedInThumbnailText && (
+                    <p className="flex items-center gap-1.5 text-xs text-amber-300">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      Seu texto está repetindo o título. Talvez a imagem possa entregar essa informação sozinha.
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="create-font" className={subLabel}>
+                    Fonte <span className="text-zinc-600">(opcional)</span>
+                  </label>
+                  <input
+                    id="create-font"
+                    type="text"
+                    value={fontName}
+                    onChange={e => setFontName(e.target.value)}
+                    placeholder="Ex: Bebas Neue, Anton"
+                    className={smallField}
+                  />
+                </div>
+              </div>
             )}
+
+            {textTreatment !== 'SEM_TEXTO' && (
+              <p className="flex items-start gap-2 text-xs text-zinc-500">
+                <Info className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                Para máxima fidelidade tipográfica, gere a imagem sem texto e aplique a fonte depois no editor.
+              </p>
+            )}
+
+            <div className="flex flex-col gap-3 border-t border-zinc-800/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <label className="flex cursor-pointer items-center gap-2.5 text-sm text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={reserveSpaceForText}
+                  onChange={e => setReserveSpaceForText(e.target.checked)}
+                  className="h-4 w-4 rounded accent-amber-500"
+                />
+                Reservar espaço limpo para texto
+              </label>
+              {reserveSpaceForText && (
+                <div role="radiogroup" aria-label="Posição do espaço reservado" className="grid grid-cols-4 gap-1 rounded-xl border border-zinc-800 bg-[#111216] p-1 sm:inline-flex">
+                  {RESERVED_POSITIONS.map(pos => (
+                    <button
+                      key={pos.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={reservedSpacePosition === pos.id}
+                      onClick={() => setReservedSpacePosition(pos.id)}
+                      className={segmentClass(reservedSpacePosition === pos.id)}
+                    >
+                      {pos.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* 2.2 ADVANCED DRAWER (⚙ Avançado) */}
-      {showAdvanced && (
-        <div className="bg-zinc-900/60 border border-zinc-800/90 rounded-2xl p-4 sm:p-5 space-y-4 animate-in fade-in duration-200">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {/* Target Model */}
-            <div>
-              <label className="text-[10px] font-mono text-zinc-400 uppercase block mb-1 font-bold">
-                Modelo Alvo do Prompt
-              </label>
-              <select
-                value={normalizeTargetModel(targetModel)}
-                onChange={e => setTargetModel(normalizeTargetModel(e.target.value as TargetModel))}
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-amber-500 font-mono"
-              >
-                {selectableTargetModels.map(group => (
-                  <optgroup key={group.groupLabel} label={group.groupLabel}>
-                    {group.models.map(m => (
-                      <option key={m.id} value={m.id}>
-                        {m.displayName}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+        {/* Advanced panel */}
+        {showAdvanced && (
+          <div id="create-advanced-panel" className={`${panelSurface} space-y-5`}>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <label htmlFor="create-model" className={subLabel}>
+                  Modelo alvo do prompt
+                </label>
+                <select
+                  id="create-model"
+                  value={normalizeTargetModel(targetModel)}
+                  onChange={e => setTargetModel(normalizeTargetModel(e.target.value as TargetModel))}
+                  className={smallField}
+                >
+                  {selectableTargetModels.map(group => (
+                    <optgroup key={group.groupLabel} label={group.groupLabel}>
+                      {group.models.map(m => (
+                        <option key={m.id} value={m.id}>
+                          {m.displayName}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="create-style" className={subLabel}>
+                  Estilo visual
+                </label>
+                <select
+                  id="create-style"
+                  value={stylePreset}
+                  onChange={e => setStylePreset(e.target.value as 'Natural' | 'Cinematográfico' | 'Editorial' | 'Fotojornalismo')}
+                  className={smallField}
+                >
+                  <option value="Natural">Natural / Iluminação Real (Padrão)</option>
+                  <option value="Cinematográfico">Cinematográfico</option>
+                  <option value="Editorial">Editorial / Revista</option>
+                  <option value="Fotojornalismo">Fotojornalismo Documental</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="create-realism" className={subLabel}>
+                  Nível de realismo
+                </label>
+                <select
+                  id="create-realism"
+                  value={realismLevel}
+                  onChange={e => setRealismLevel(e.target.value as 'Alto' | 'Estilizado')}
+                  className={smallField}
+                >
+                  <option value="Alto">Alto / Fotográfico Real</option>
+                  <option value="Estilizado">Estilizado</option>
+                </select>
+              </div>
             </div>
 
-            {/* Style Preset */}
-            <div>
-              <label className="text-[10px] font-mono text-zinc-400 uppercase block mb-1 font-bold">
-                Estilo Visual
-              </label>
-              <select
-                value={stylePreset}
-                onChange={e => setStylePreset(e.target.value as 'Natural' | 'Cinematográfico' | 'Editorial' | 'Fotojornalismo')}
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-amber-500 font-mono"
-              >
-                <option value="Natural">Natural / Iluminação Real (Padrão)</option>
-                <option value="Cinematográfico">Cinematográfico</option>
-                <option value="Editorial">Editorial / Revista</option>
-                <option value="Fotojornalismo">Fotojornalismo Documental</option>
-              </select>
-            </div>
-
-            {/* Realism Level */}
-            <div>
-              <label className="text-[10px] font-mono text-zinc-400 uppercase block mb-1 font-bold">
-                Nível de Realismo
-              </label>
-              <select
-                value={realismLevel}
-                onChange={e => setRealismLevel(e.target.value as 'Alto' | 'Estilizado')}
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-amber-500 font-mono"
-              >
-                <option value="Alto">Alto / Fotográfico Real</option>
-                <option value="Estilizado">Estilizado</option>
-              </select>
-            </div>
-
-            {/* Preservations */}
-            <div className="sm:col-span-2 flex flex-wrap gap-4 pt-1">
-              <label className="flex items-center gap-2 cursor-pointer text-xs font-sans text-zinc-300">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-6">
+              <label className="flex cursor-pointer items-center gap-2.5 text-sm text-zinc-300">
                 <input
                   type="checkbox"
                   checked={preserveFace}
                   onChange={e => setPreserveFace(e.target.checked)}
-                  className="accent-amber-500 w-4 h-4 rounded"
+                  className="h-4 w-4 rounded accent-amber-500"
                 />
-                <span>Preservar traços de rosto (Sem pele plástica)</span>
+                Preservar traços de rosto (sem pele plástica)
               </label>
-
-              <label className="flex items-center gap-2 cursor-pointer text-xs font-sans text-zinc-300">
+              <label className="flex cursor-pointer items-center gap-2.5 text-sm text-zinc-300">
                 <input
                   type="checkbox"
                   checked={preserveProduct}
                   onChange={e => setPreserveProduct(e.target.checked)}
-                  className="accent-amber-500 w-4 h-4 rounded"
+                  className="h-4 w-4 rounded accent-amber-500"
                 />
-                <span>Preservar integridade física do produto/hardware</span>
+                Preservar integridade física do produto/hardware
               </label>
             </div>
 
-            {/* Extra Instructions */}
-            <div className="sm:col-span-2 lg:col-span-3">
-              <label className="text-[10px] font-mono text-zinc-400 uppercase block mb-1 font-bold">
-                Instruções Extras de Direção
+            <div className="space-y-2">
+              <label htmlFor="create-extra" className={subLabel}>
+                Instruções extras de direção
               </label>
               <input
+                id="create-extra"
                 type="text"
                 value={extraInstructions}
                 onChange={e => setExtraInstructions(e.target.value)}
-                placeholder="Ex: Quero um fundo um pouco mais escuro para destacar o contorno fosco do aparelho"
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-sans text-zinc-200 focus:outline-none focus:border-amber-500"
+                placeholder="Ex: fundo um pouco mais escuro para destacar o contorno do aparelho"
+                className={smallField}
               />
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* 3. REFERÊNCIAS (Simplified & Guided Horizontal Strip) */}
-      <div className="space-y-2.5 pt-1">
-        <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
-          <div className="flex items-baseline gap-2">
-            <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-300">
-              REFERÊNCIAS
-            </h3>
-            <span className="text-xs text-zinc-500 font-sans">
-              &ldquo;Quanto mais você mostrar, menos a IA precisa inventar.&rdquo;
-            </span>
-          </div>
-          {references.length > 0 && (
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="text-xs font-mono text-amber-400 hover:text-amber-300 font-medium self-start sm:self-auto"
-            >
-              + Adicionar imagem
-            </button>
-          )}
+      {/* 4. Referências (single upload flow: picker + drag-and-drop) */}
+      <section
+        ref={referencesSectionRef}
+        aria-labelledby="create-refs-heading"
+        className="scroll-mt-28 space-y-3"
+        onDragOver={e => {
+          e.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={e => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setIsDragging(false);
+        }}
+        onDrop={e => {
+          e.preventDefault();
+          setIsDragging(false);
+          handleFiles(e.dataTransfer.files);
+        }}
+      >
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h3 id="create-refs-heading" className={fieldLabel}>
+            Referências
+          </h3>
+          <span className="w-full text-sm text-zinc-500 sm:w-auto">
+            <span aria-hidden="true" className="mr-3 hidden text-zinc-600 sm:inline">•</span>
+            Quanto mais você mostrar, menos a IA precisa inventar.
+          </span>
         </div>
 
         <input
@@ -729,270 +837,236 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount }: ModeCreateProps)
           multiple
           accept="image/*"
           className="hidden"
-          onChange={e => handleFiles(e.target.files)}
+          onChange={e => {
+            handleFiles(e.target.files);
+            e.target.value = '';
+          }}
+        />
+        <input
+          type="file"
+          ref={replaceInputRef}
+          accept="image/*"
+          className="hidden"
+          onChange={e => {
+            handleReplaceFile(e.target.files);
+            e.target.value = '';
+          }}
         />
 
-        {/* If no references uploaded, show clean minimal upload trigger */}
         {references.length === 0 ? (
-          <div
-            onDragOver={e => {
-              e.preventDefault();
-              setIsDragging(true);
-            }}
-            onDragLeave={() => setIsDragging(false)}
-            onDrop={e => {
-              e.preventDefault();
-              setIsDragging(false);
-              handleFiles(e.dataTransfer.files);
-            }}
-            onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-2xl p-5 text-center cursor-pointer transition group ${
+          <button
+            ref={addReferenceRef}
+            type="button"
+            onClick={openFilePicker}
+            className={`flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-6 py-8 text-center transition-colors ${focusRing} ${
               isDragging
-                ? 'border-amber-500 bg-amber-500/10'
-                : 'border-zinc-800/80 hover:border-zinc-700 bg-zinc-900/30'
+                ? 'border-amber-500 bg-amber-500/5'
+                : 'border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900/40'
             }`}
           >
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5">
-              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-800/80 group-hover:bg-zinc-800 text-zinc-200 text-xs font-mono font-medium border border-zinc-700/60 transition">
-                <Upload className="w-3.5 h-3.5 text-amber-400" />
-                <span>+ Adicionar referência</span>
-              </span>
-              <span className="text-xs text-zinc-500 font-sans">
-                ou arraste fotos aqui (rosto, produto, cenário, estilo ou tipografia)
-              </span>
-            </div>
-          </div>
+            <Upload className={`h-6 w-6 ${isDragging ? 'text-amber-400' : 'text-zinc-400'}`} aria-hidden="true" />
+            <span className="text-base font-semibold text-zinc-100">
+              {isDragging ? 'Solte para adicionar' : 'Adicionar referência'}
+            </span>
+            <span className="text-sm text-zinc-500">
+              Ou arraste fotos aqui (rosto, produto, cenário, estilo ou tipografia)
+            </span>
+          </button>
         ) : (
-          /* Uploaded references displayed as sleek horizontal strip */
-          <div className="flex gap-3 overflow-x-auto pb-2 pt-1">
+          <div
+            className={`grid grid-cols-2 gap-3 rounded-xl transition-colors md:grid-cols-3 lg:grid-cols-4 ${
+              isDragging ? 'outline-dashed outline-1 outline-offset-4 outline-amber-500' : ''
+            }`}
+          >
             {references.map(ref => (
-              <div
-                key={ref.id}
-                className="w-48 shrink-0 bg-zinc-900/90 border border-zinc-800 rounded-xl p-2.5 flex flex-col gap-2 relative group"
-              >
-                <div className="relative aspect-video w-full rounded-lg overflow-hidden border border-zinc-800 bg-zinc-950">
+              <div key={ref.id} className="flex flex-col gap-2.5 rounded-xl border border-zinc-800 bg-[#111216] p-2.5">
+                <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-zinc-950">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={ref.url}
-                    alt={ref.name}
-                    className="w-full h-full object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveRef(ref.id)}
-                    className="absolute top-1 right-1 p-1 rounded-md bg-zinc-950/80 hover:bg-rose-500/80 text-zinc-400 hover:text-zinc-100 transition"
-                    title="Remover referência"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
+                  <img src={ref.url} alt={ref.name} className="h-full w-full object-cover" />
+                  <div className="absolute right-1.5 top-1.5 flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => startReplace(ref.id)}
+                      aria-label={`Trocar imagem de ${ref.name}`}
+                      title="Trocar imagem (mantém o papel)"
+                      className={`grid h-8 w-8 place-items-center rounded-lg bg-zinc-950/80 text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-50 ${focusRing}`}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveRef(ref.id)}
+                      aria-label={`Remover ${ref.name}`}
+                      title="Remover referência"
+                      className={`grid h-8 w-8 place-items-center rounded-lg bg-zinc-950/80 text-zinc-300 transition-colors hover:bg-rose-500/80 hover:text-zinc-50 ${focusRing}`}
+                    >
+                      <X className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
 
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[11px] text-zinc-300 font-sans truncate font-medium" title={ref.name}>
-                    {ref.name}
-                  </span>
+                <span className="truncate text-xs text-zinc-400" title={ref.name}>
+                  {ref.name}
+                </span>
 
-                  {/* Compact Role Selector Dropdown */}
+                <div className="relative">
                   <select
                     value={ref.role}
                     onChange={e => handleRoleChange(ref.id, e.target.value as SimpleReferenceRole)}
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-[11px] font-mono text-amber-400 font-bold focus:outline-none focus:border-amber-500"
+                    aria-label={`Papel da referência ${ref.name}`}
+                    className={`h-9 w-full appearance-none rounded-lg border border-zinc-800 bg-zinc-950 pl-3 pr-8 text-[13px] font-semibold text-amber-300 transition-colors hover:border-zinc-700 focus:border-amber-500/70 focus:outline-none [&>option]:text-zinc-200`}
                   >
                     {ALL_ROLES.map(role => (
-                      <option key={role} value={role} className="text-zinc-200">
-                        {role}
+                      <option key={role} value={role}>
+                        {ROLE_LABEL[role]}
                       </option>
                     ))}
                   </select>
-
-                  {/* If role is CENÁRIO: discreet sub-selector */}
-                  {ref.role === 'CENÁRIO' ? (
-                    <div className="pt-1 border-t border-zinc-800 space-y-1">
-                      <div className="flex rounded-md bg-zinc-950 p-0.5 border border-zinc-800">
-                        <button
-                          type="button"
-                          onClick={() => handleScenarioModeChange(ref.id, 'MEU_AMBIENTE')}
-                          className={`flex-1 text-[9px] font-mono py-0.5 rounded transition font-bold ${
-                            (ref.scenarioMode || 'MEU_AMBIENTE') === 'MEU_AMBIENTE'
-                              ? 'bg-amber-500 text-zinc-950'
-                              : 'text-zinc-400 hover:text-zinc-200'
-                          }`}
-                        >
-                          MEU AMBIENTE
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleScenarioModeChange(ref.id, 'REFERENCIA_AMBIENTE')}
-                          className={`flex-1 text-[9px] font-mono py-0.5 rounded transition font-bold ${
-                            ref.scenarioMode === 'REFERENCIA_AMBIENTE'
-                              ? 'bg-amber-500 text-zinc-950'
-                              : 'text-zinc-400 hover:text-zinc-200'
-                          }`}
-                        >
-                          REFERÊNCIA
-                        </button>
-                      </div>
-                      <p className="text-[9px] text-zinc-400 font-sans leading-tight">
-                        {ref.scenarioMode === 'REFERENCIA_AMBIENTE'
-                          ? 'Apenas atmosfera, não copia layout.'
-                          : 'Preserva layout e elementos deste local.'}
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-[9.5px] text-zinc-400 font-sans leading-tight">
-                      {ROLE_MICROCOPY[ref.role]}
-                    </p>
-                  )}
+                  <ChevronDown
+                    className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500"
+                    aria-hidden="true"
+                  />
                 </div>
+
+                {ref.role === 'CENÁRIO' ? (
+                  <div className="space-y-1.5">
+                    <div role="radiogroup" aria-label="Uso do cenário" className="grid grid-cols-2 gap-1 rounded-lg border border-zinc-800 bg-zinc-950 p-0.5">
+                      {(
+                        [
+                          ['MEU_AMBIENTE', 'Meu ambiente'],
+                          ['REFERENCIA_AMBIENTE', 'Referência']
+                        ] as [ScenarioInterpretation, string][]
+                      ).map(([mode, label]) => {
+                        const selected = (ref.scenarioMode || 'MEU_AMBIENTE') === mode;
+                        return (
+                          <button
+                            key={mode}
+                            type="button"
+                            role="radio"
+                            aria-checked={selected}
+                            onClick={() => handleScenarioModeChange(ref.id, mode)}
+                            className={`min-h-7 rounded-md px-1 py-1 text-[11px] font-semibold leading-tight transition-colors ${focusRing} ${
+                              selected ? 'bg-zinc-700 text-zinc-50' : 'text-zinc-400 hover:text-zinc-100'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] leading-snug text-zinc-500">
+                      {ref.scenarioMode === 'REFERENCIA_AMBIENTE'
+                        ? 'Apenas atmosfera, não copia layout.'
+                        : 'Preserva layout e elementos deste local.'}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[11px] leading-snug text-zinc-500">{ROLE_MICROCOPY[ref.role]}</p>
+                )}
               </div>
             ))}
+
+            <button
+              ref={addReferenceRef}
+              type="button"
+              onClick={openFilePicker}
+              className={`flex min-h-[140px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-800 text-sm text-zinc-400 transition-colors hover:border-zinc-600 hover:bg-zinc-900/40 hover:text-zinc-100 ${focusRing}`}
+            >
+              <ImagePlus className="h-5 w-5" aria-hidden="true" />
+              Adicionar imagem
+            </button>
           </div>
         )}
-      </div>
+      </section>
 
-      {/* 4. RESULTS SECTION (Side-by-Side 40% / 60% on Desktop) */}
+      {/* 5. Resultado */}
       {result && (
-        <div className="space-y-6 pt-6 border-t border-zinc-800/80 animate-in fade-in duration-300">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* 40% Column (lg:col-span-5): DIREÇÃO VISUAL */}
-            <div className="lg:col-span-5 space-y-4">
-              <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 space-y-4">
-                <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-amber-500" />
-                    <h3 className="text-xs font-mono font-bold text-zinc-100 uppercase tracking-wider">
-                      DIREÇÃO VISUAL ({result.approachTitle})
-                    </h3>
-                  </div>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-950 text-amber-400 border border-amber-500/30">
-                    5 DECISÕES
-                  </span>
+        <div ref={resultRef} className="scroll-mt-28 space-y-6 border-t border-zinc-800/80 pt-8">
+          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+            {/* Direção visual */}
+            <div className="space-y-4 lg:col-span-5">
+              <div className={`${panelSurface} space-y-4`}>
+                <div className="flex items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
+                  <h3 className={fieldLabel}>Direção visual</h3>
+                  <span className="truncate text-xs text-zinc-500">{result.approachTitle}</span>
                 </div>
 
-                {/* Clean scannable list with subtle dividers */}
-                <div className="divide-y divide-zinc-800/60 space-y-3 pt-1">
-                  <div className="pt-2 first:pt-0">
-                    <span className="text-[10px] font-mono uppercase text-amber-500 font-bold block mb-1">
-                      IDEIA
-                    </span>
-                    <p className="text-xs text-zinc-200 leading-relaxed font-sans">
-                      {result.direction.ideia}
-                    </p>
-                  </div>
-
-                  <div className="pt-3">
-                    <span className="text-[10px] font-mono uppercase text-amber-500 font-bold block mb-1">
-                      FOCO
-                    </span>
-                    <p className="text-xs text-zinc-200 leading-relaxed font-sans">
-                      {result.direction.foco}
-                    </p>
-                  </div>
-
-                  <div className="pt-3">
-                    <span className="text-[10px] font-mono uppercase text-amber-500 font-bold block mb-1">
-                      COMPOSIÇÃO
-                    </span>
-                    <p className="text-xs text-zinc-200 leading-relaxed font-sans">
-                      {result.direction.composicao}
-                    </p>
-                  </div>
-
-                  <div className="pt-3">
-                    <span className="text-[10px] font-mono uppercase text-amber-500 font-bold block mb-1">
-                      EXPRESSÃO
-                    </span>
-                    <p className="text-xs text-zinc-200 leading-relaxed font-sans">
-                      {result.direction.expressao}
-                    </p>
-                  </div>
-
-                  <div className="pt-3">
-                    <span className="text-[10px] font-mono uppercase text-amber-500 font-bold block mb-1">
-                      VISUAL & LUZ
-                    </span>
-                    <p className="text-xs text-zinc-200 leading-relaxed font-sans">
-                      {result.direction.visual}
-                    </p>
-                  </div>
-                </div>
+                <dl className="space-y-4">
+                  {(
+                    [
+                      ['Ideia', result.direction.ideia],
+                      ['Foco', result.direction.foco],
+                      ['Composição', result.direction.composicao],
+                      ['Expressão', result.direction.expressao],
+                      ['Visual & luz', result.direction.visual]
+                    ] as [string, string][]
+                  ).map(([label, value]) => (
+                    <div key={label}>
+                      <dt className="mb-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-amber-500">{label}</dt>
+                      <dd className="text-sm leading-relaxed text-zinc-200">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
               </div>
 
-              {/* Plano de Tipografia (se houver texto) */}
               {result.typographyPlan && (
-                <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-2">
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-500 block">
-                    PLANO DE TIPOGRAFIA
+                <div className={`${panelSurface} space-y-2`}>
+                  <span className="block text-[11px] font-semibold uppercase tracking-[0.1em] text-amber-500">
+                    Plano de tipografia
                   </span>
-                  <p className="text-xs text-zinc-300 leading-relaxed font-sans whitespace-pre-line">
-                    {result.typographyPlan}
-                  </p>
+                  <p className="whitespace-pre-line text-sm leading-relaxed text-zinc-300">{result.typographyPlan}</p>
                 </div>
               )}
             </div>
 
-            {/* 60% Column (lg:col-span-7): PROMPT FINAL */}
-            <div className="lg:col-span-7 space-y-4">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-6 space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <span className="text-xs font-mono uppercase tracking-wider text-amber-500 font-bold block">
-                      PROMPT FINAL (ENGLISH)
-                    </span>
-                    <div className="flex items-center flex-wrap gap-2 mt-0.5">
-                      <p className="text-xs text-zinc-400 font-sans">
+            {/* Prompt final */}
+            <div className="space-y-4 lg:col-span-7">
+              <div className={`${panelSurface} space-y-4`}>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <span className={fieldLabel}>Prompt final (English)</span>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <p className="text-sm text-zinc-400">
                         Pronto para colar no{' '}
                         {normalizeTargetModel(targetModel) === 'GERAL'
                           ? 'Midjourney, FLUX ou seu gerador preferido'
                           : TARGET_MODEL_CONFIGS[normalizeTargetModel(targetModel)]?.displayName || targetModel}
                       </p>
-                      {result?.outputMetadata && (
-                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-zinc-950 border border-zinc-800 text-[10px] font-mono text-zinc-400">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      {result.outputMetadata && (
+                        <span className="inline-flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-950 px-2 py-0.5 font-mono text-[11px] text-zinc-400">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
                           {result.outputMetadata.modelId} · {result.outputMetadata.aspectRatioHint}
                         </span>
                       )}
                     </div>
                   </div>
 
-                  {/* Prominent Copy Button */}
                   <button
                     type="button"
                     onClick={handleCopyPrompt}
-                    className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-mono font-bold text-xs uppercase flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition shrink-0 active:scale-95"
+                    className={`inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 text-sm font-bold uppercase tracking-[0.06em] text-zinc-950 transition-colors hover:bg-amber-400 active:bg-amber-600 ${focusRing}`}
                   >
-                    {copied ? (
-                      <>
-                        <Check className="w-4 h-4 text-zinc-950" />
-                        <span>COPIADO!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-4 h-4 text-zinc-950" />
-                        <span>COPIAR</span>
-                      </>
-                    )}
+                    {copied ? <Check className="h-4 w-4" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
+                    <span>{copied ? 'Copiado!' : 'Copiar'}</span>
                   </button>
                 </div>
 
-                {/* Clean, spacious monospace prompt box */}
-                <div className="bg-zinc-950 border border-zinc-800/80 rounded-xl p-5 text-xs font-mono text-zinc-200 leading-relaxed whitespace-pre-wrap select-all max-h-[28rem] overflow-y-auto">
+                <div className="max-h-[28rem] select-all overflow-y-auto whitespace-pre-wrap rounded-lg border border-zinc-800/80 bg-zinc-950 p-4 font-mono text-xs leading-relaxed text-zinc-200 sm:p-5">
                   {result.finalPrompt}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Center Button: Outra Abordagem */}
-          <div className="text-center pt-2 pb-4">
+          <div className="pb-4 text-center">
             <button
               type="button"
               onClick={handleAnotherApproach}
               disabled={isLoading}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 hover:border-amber-500/60 text-zinc-300 hover:text-amber-400 text-xs font-mono font-medium transition shadow-sm"
+              className={`${secondaryButton} ${secondaryIdle}`}
             >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>GERAR OUTRA ABORDAGEM VISUAL</span>
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              <span>Gerar outra abordagem visual</span>
             </button>
           </div>
         </div>

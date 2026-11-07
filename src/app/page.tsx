@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useSyncExternalStore } from 'react';
 import { SimpleHeader } from '@/components/simple/Header';
 import { ModeCreate } from '@/components/simple/ModeCreate';
 import { ModeImprove } from '@/components/simple/ModeImprove';
@@ -9,11 +9,16 @@ import { HistoryModal } from '@/components/simple/HistoryModal';
 import { getSimpleHistory } from '@/lib/simpleEngine/history';
 import { SimpleHistoryItem } from '@/types/simple';
 
+const subscribeNever = () => () => {};
+
 export default function Home() {
   const [currentMode, setCurrentMode] = useState<'CRIAR' | 'MELHORAR' | 'ANALISAR'>('CRIAR');
   const [historyItems, setHistoryItems] = useState<SimpleHistoryItem[]>(() => {
     return typeof window !== 'undefined' ? getSimpleHistory() : [];
   });
+  // false during SSR and hydration, true afterwards: local-only data (history count)
+  // is shown only after hydration, so the first client render matches the server HTML.
+  const hydrated = useSyncExternalStore(subscribeNever, () => true, () => false);
   const [showHistory, setShowHistory] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [aiConfigured, setAiConfigured] = useState(false);
@@ -50,32 +55,34 @@ export default function Home() {
         currentMode={currentMode}
         onSelectMode={setCurrentMode}
         onOpenHistory={() => setShowHistory(true)}
-        historyCount={historyItems.length}
+        historyCount={hydrated ? historyItems.length : 0}
         aiConfigured={aiConfigured}
       />
 
       {/* 2. Main Work Area (Pure & Simple, Spacious Creative Canvas) */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        {currentMode === 'CRIAR' && (
+        {/* All modes stay mounted (inactive ones hidden) so switching modes
+            keeps what the creator typed, uploaded or generated. */}
+        <div hidden={currentMode !== 'CRIAR'}>
           <ModeCreate
             onNotify={handleNotify}
             onRefreshHistoryCount={refreshHistory}
           />
-        )}
+        </div>
 
-        {currentMode === 'MELHORAR' && (
+        <div hidden={currentMode !== 'MELHORAR'}>
           <ModeImprove
             onNotify={handleNotify}
             onRefreshHistoryCount={refreshHistory}
           />
-        )}
+        </div>
 
-        {currentMode === 'ANALISAR' && (
+        <div hidden={currentMode !== 'ANALISAR'}>
           <ModeAnalyze
             onNotify={handleNotify}
             onRefreshHistoryCount={refreshHistory}
           />
-        )}
+        </div>
       </main>
 
       {/* 3. Subtle Editorial Footer */}
