@@ -692,7 +692,7 @@ console.log('\n19. Testando Novos Tipos de Referência, Isolamento de Atributos 
   assert.ok(resTipo.finalPrompt.includes('TYPOGRAPHY REFERENCE'), 'Deve conter trava de TIPOGRAFIA');
   assert.ok(resTipo.finalPrompt.includes('font personality'), 'TIPOGRAFIA deve preservar personalidade da fonte');
   assert.ok(resTipo.finalPrompt.includes('Do NOT copy images, people, background scenery'), 'TIPOGRAFIA NÃO deve copiar imagens, pessoas ou cenário');
-  assert.ok(resTipo.finalPrompt.includes('The only visible text must read exactly: "NOVO DESIGN"'), 'Deve manter texto exato');
+  assert.match(resTipo.finalPrompt, /Render the headline "NOVO DESIGN" exactly as written/, 'Deve manter texto exato');
   console.log('  ✓ TIPOGRAFIA: Personalidade de fonte preservada sem vazar imagem ou cenário.');
 
   // Test 19C: GERAR SEM TEXTO
@@ -754,7 +754,7 @@ console.log('\n19. Testando Novos Tipos de Referência, Isolamento de Atributos 
     preserveProduct: false
   });
   // Default (AUTO) renders the headline for copy-and-paste: the exact wording is an instruction to the generator.
-  assert.ok(resExato.finalPrompt.includes('The only visible text must read exactly: "AGORA FUNCIONA"'), 'AUTO: a imagem recebe a ordem de renderizar o texto exato');
+  assert.match(resExato.finalPrompt, /Render the headline "AGORA FUNCIONA" exactly as written/, 'AUTO: a imagem recebe a ordem de renderizar o texto exato');
   console.log('  ✓ TEXTO EXATO: Instrução literal "AGORA FUNCIONA" validada sem reescrita.');
 
   // Test 19F: FONTE REAL INFORMADA PELO USUÁRIO (ex: Anton)
@@ -773,7 +773,7 @@ console.log('\n19. Testando Novos Tipos de Referência, Isolamento de Atributos 
   });
   // AUTO: the font is a direction for the generator, not a promise of the real typeface.
   assert.ok(!/Anton typeface/i.test(resFonteReal.finalPrompt), 'Não promete ao gerador desenhar Anton');
-  assert.ok(/similar in spirit to Anton/.test(resFonteReal.finalPrompt), 'Anton entra como direção de estilo');
+  assert.ok(/Typographic direction: Anton style, as a guide only/.test(resFonteReal.finalPrompt), 'Anton entra como direção de estilo');
   assert.ok(/Direção de fonte: Anton/.test(resFonteReal.typographyPlan), 'Plano: Anton como direção, não como camada');
   console.log('  ✓ FONTE REAL: Preservação de Anton sem nomes falsos inventados pela IA.');
 
@@ -807,35 +807,24 @@ console.log('\n19. Testando Novos Tipos de Referência, Isolamento de Atributos 
   // Mãos com oclusão natural
   assert.ok(resTrio.finalPrompt.includes('Anatomically plausible hands'), 'Trio com pessoa e produto deve usar mãos com oclusão natural');
 
-  // Test 19I: buildTypographyPlan (Função visual primeiro, sugestões reais depois, caso sem texto)
+  // Test 19I: buildTypographyPlan explains the decisions for the case (genre, length, position, font direction).
   const { buildTypographyPlan } = await import('../src/lib/simpleEngine/engine.ts');
-
-  // Condensada pesada para poucas palavras
   const planGeneric = buildTypographyPlan('AGORA FUNCIONA', false, undefined, 'DIREITA', 'Natural');
-  assert.ok(planGeneric.includes('Sans-serif condensada pesada'), 'Deve determinar função condensada pesada');
-  assert.ok(planGeneric.includes('Anton ou Bebas Neue'), 'Deve sugerir Anton ou Bebas Neue (instaladas)');
-  assert.ok(planGeneric.includes('à direita'), 'Deve respeitar a posição reservada');
-
-  // Sans geométrica pesada para tech
-  const planTech = buildTypographyPlan('RTX 5090 TESTE', true, undefined, 'ESQUERDA', 'Natural');
-  assert.ok(planTech.includes('Sans geométrica pesada'), 'Para tech deve determinar sans geométrica pesada');
-  assert.ok(planTech.includes('Archivo Black'), 'Sugestão para tech');
-  assert.ok(planTech.includes('à esquerda'), 'Deve respeitar a posição à esquerda');
-
-  // Grotesca editorial para estilo Editorial / Fotojornalismo
-  const planEditorial = buildTypographyPlan('DOCUMENTÁRIO', false, undefined, 'DIREITA', 'Editorial');
-  assert.ok(planEditorial.includes('Grotesca editorial'), 'Para editorial deve determinar grotesca editorial');
-  assert.ok(planEditorial.includes('Oswald'), 'Sugestão para editorial');
-
-  // Sans neutra para texto mais longo (imagem deve dominar)
-  const planNeutra = buildTypographyPlan('TESTANDO MAIS DE QUATRO PALAVRAS', false, undefined, 'DIREITA', 'Natural');
-  assert.ok(planNeutra.includes('Sans-serif neutra'), 'Texto longo deve usar sans neutra para imagem dominar');
-  assert.ok(planNeutra.includes('Barlow Condensed'), 'Sugestão para sans neutra');
-
-  // Fonte customizada informada pelo usuário
+  assert.ok(planGeneric.includes('em área limpa à direita'), 'Plano: respeita a posição reservada');
+  assert.ok(planGeneric.includes('Tipografia geral'), 'Plano: gênero geral quando não há pista de gênero');
+  const planTech = buildTypographyPlan('RTX 5090 TESTE', true, undefined, 'ESQUERDA', 'Natural', undefined, { title: 'Teste da RTX 5090' });
+  assert.ok(planTech.includes('Gênero tecnologia'), 'Plano: tecnologia detectada pelo contexto');
+  assert.ok(planTech.includes('à esquerda'), 'Plano: posição esquerda');
+  const planOpinion = buildTypographyPlan('NÃO COMPRE', false, undefined, 'DIREITA', 'Natural', undefined, { title: 'Vale a pena comprar?' });
+  assert.ok(planOpinion.includes('Gênero opinião'), 'Plano: opinião detectada pelo título');
+  const planNeutra = buildTypographyPlan('ISSO NÃO É TUDO O QUE VOCÊ PRECISA SABER', false, undefined, 'SUPERIOR', 'Natural');
+  assert.ok(planNeutra.includes('duas a três linhas') || planNeutra.includes('Texto longo'), 'Plano: texto longo quebra em linhas');
   const planCustom = buildTypographyPlan('IMPORTANTE', false, 'Montserrat', 'SUPERIOR');
-  assert.ok(planCustom.includes('Montserrat'), 'Deve respeitar fonte informada pelo usuário');
-  assert.ok(planCustom.includes('no topo'), 'Deve mapear SUPERIOR para no topo');
+  assert.ok(planCustom.includes('Direção de fonte: Montserrat'), 'Plano: fonte informada vira direção, não promessa');
+  assert.ok(planCustom.includes('no topo') || planCustom.includes('topo'), 'Plano: posição superior');
+  const planLayer = buildTypographyPlan('AGORA FUNCIONA', false, undefined, 'DIREITA', 'Natural', 'CAMADA_REAL');
+  assert.ok(planLayer.includes('com a fonte sugerida:'), 'Camada depois: fonte sugerida para o editor de imagem');
+  console.log('  ✓ PLANO DE TIPOGRAFIA: decisões do caso (gênero, posição, direção de fonte) explicadas.');
 
   // Quando não houver necessidade de texto
   const planEmpty = buildTypographyPlan('', false);
@@ -3288,8 +3277,6 @@ console.log('\n43. Testando tipografia: estratégia, camada real, layout do edit
 {
   const fs = await import('node:fs');
   const { chooseTypographyStrategy, extractRequestedText } = await import('../src/lib/typography/strategy.ts');
-  const { REAL_FONTS } = await import('../src/lib/typography/fonts.ts');
-  const L = await import('../src/lib/typography/overlayLayout.ts');
   const { reviewTypography } = await import('../src/lib/typography/analyze.ts');
   const { generateSimpleThumbnail, buildTypographyPlan } = await import('../src/lib/simpleEngine/engine.ts');
 
@@ -3313,47 +3300,27 @@ console.log('\n43. Testando tipografia: estratégia, camada real, layout do edit
   const base = { ...CYCLE6_BASE, videoTitle: 'Vale a pena?', ideaDescription: 'Eu apontando para a tela', thumbnailText: pt, fontName: 'Anton', targetModel: 'GERAL' };
   const auto = generateSimpleThumbnail(base);
   assert.ok(auto.finalPrompt.includes(`"${pt}"`), 'AUTO: texto exato com acentos e pontuação no prompt');
-  assert.ok(auto.finalPrompt.includes('Render this headline exactly as written'), 'AUTO: o gerador recebe a ordem de renderizar');
-  assert.ok(auto.finalPrompt.includes('one coherent display typeface'), 'AUTO: regras contra letras malfeitas');
+  assert.match(auto.finalPrompt, /Render the headline "AÇÃO: NÃO COMPRE, é sério!" exactly as written/, 'AUTO: o gerador recebe a ordem de renderizar');
+  assert.ok(/Draw the letters as one|display face/.test(auto.finalPrompt), 'AUTO: letras construídas, não pseudo-letras');
   assert.ok(!/Do not draw the headline/.test(auto.finalPrompt), 'AUTO: nunca pede para deixar o texto de fora');
   assert.ok(!/Anton typeface/i.test(auto.finalPrompt), 'Sem promessa de desenhar Anton');
   assert.match(auto.typographyPlan, /Estratégia: a imagem renderiza o texto exato/, 'Plano: a imagem renderiza');
   assert.match(auto.typographyPlan, /Direção de fonte: Anton/, 'Plano: Anton é direção de estilo');
   const layer = generateSimpleThumbnail({ ...base, textTreatment: 'CAMADA_REAL' });
   assert.ok(layer.finalPrompt.includes('Do not draw the headline text'), 'Camada depois: a IA deixa o espaço e não desenha');
-  assert.ok(!/must read exactly|Render this headline/.test(layer.finalPrompt), 'Camada depois: sem ordem de desenhar');
-  assert.match(layer.typographyPlan, /Depois de gerar a imagem: ANALISAR > Adicionar texto com fonte real/, 'Camada depois: caminho para completar');
-  assert.match(layer.typographyPlan, /Fonte da camada: Anton/, 'Camada depois: Anton instalada');
+  assert.ok(!/Render the headline/.test(layer.finalPrompt), 'Camada depois: sem ordem de desenhar');
+  assert.match(layer.typographyPlan, /adicione o texto exato em um editor de imagem/, 'Camada depois: caminho para completar');
+  assert.match(layer.typographyPlan, /com a fonte sugerida: Anton/, 'Camada depois: Anton como sugestão');
   const inImg = generateSimpleThumbnail({ ...CYCLE6_BASE, videoTitle: 'Vale a pena?', ideaDescription: 'Eu apontando', thumbnailText: 'VALE A PENA?', textTreatment: 'RENDER_IN_IMAGE', targetModel: 'GERAL' });
-  assert.match(inImg.finalPrompt, /The only visible text must read exactly: "VALE A PENA\?"/, 'Pedido explícito mantém a regra literal');
+  assert.match(inImg.finalPrompt, /Render the headline "VALE A PENA\?" exactly as written/, 'Pedido explícito mantém o texto exato');
   const noText = generateSimpleThumbnail({ ...base, textTreatment: "SEM_TEXTO" });
   assert.ok(!/headline|real typography layer|must read exactly/.test(noText.finalPrompt), 'Sem texto: nenhuma sobreposição nem camada');
   console.log('  ✓ TEST 43.2: CREATE copia e cola com instrução de renderizar o texto; camada real tem caminho de conclusão; sem texto, nada é sobreposto.');
 
-  // 43.3 Fontes: só as cinco OFL instaladas, arquivos existentes e licença de cada família.
-  assert.deepEqual(REAL_FONTS.map(f => f.family).sort(), ['Anton', 'Archivo Black', 'Barlow Condensed', 'Bebas Neue', 'Oswald'], 'Cinco fontes OFL');
-  for (const f of REAL_FONTS) {
-    assert.ok(fs.existsSync(new URL('../public' + f.file, import.meta.url)), `arquivo da fonte existe: ${f.file}`);
-  }
-  for (const d of ['anton', 'archivoblack', 'barlowcondensed', 'bebasneue', 'oswald']) {
-    assert.ok(fs.existsSync(new URL(`../public/fonts/${d}/OFL.txt`, import.meta.url)), `licença OFL de ${d}`);
-  }
-  assert.match(buildTypographyPlan('X Y', false, undefined, 'DIREITA', 'Editorial'), /Oswald/, 'Sugestão editorial é uma fonte instalada');
-  console.log('  ✓ TEST 43.3: Cinco fontes OFL presentes, com licença; sugestões usam só fontes instaladas.');
-
-  // 43.4 Layout: tamanho em pixels, contorno, texto sempre dentro da imagem, texto grande demais é sinalizado.
-  assert.equal(L.overlayFontPx(720, 10), 72, 'Tamanho em pixels a partir da altura');
-  assert.equal(L.overlayFontPx(100, 1), 8, 'Mínimo de 8 px');
-  assert.equal(L.outlineWidthPx(72, 0), 0, 'Sem contorno quando 0');
-  assert.equal(L.outlineWidthPx(72, 2), 1.4, 'Contorno proporcional à fonte');
-  const inside = L.placeText(1280, 720, 300, 80, 100, 100);
-  assert.ok(inside.x + 300 <= 1280 && inside.y + 80 <= 720 && inside.x >= 0 && inside.y >= 0, 'Caixa do texto não sai da imagem');
-  assert.ok(inside.moved, 'Ao ir para o canto, a caixa é puxada para dentro');
-  const huge = L.placeText(400, 300, 900, 80, 50, 50);
-  assert.ok(huge.tooLarge, 'Texto maior que a imagem é sinalizado');
-  assert.ok(L.overlayWarnings({ text: '  ', sizePct: 9, xPct: 50, yPct: 50, outlinePct: 0 }, null).some(w => /Digite/.test(w)), 'Texto vazio é avisado');
-  assert.equal(L.normalizeSpec({ text: 'x', sizePct: 99, xPct: -5, yPct: 500, outlinePct: 40 }).sizePct, 30, 'Tamanho limitado');
-  console.log('  ✓ TEST 43.4: Layout mantém o texto dentro da imagem, limita valores e sinaliza texto grande demais.');
+  // 43.3 Editor removido: o ANALISAR não tem editor de fontes; a análise tipográfica continua em reviewTypography.
+  const analyzeSrc = fs.readFileSync(new URL('../src/components/simple/ModeAnalyze.tsx', import.meta.url), 'utf8');
+  assert.ok(!/TextOverlayEditor|Adicionar texto com fonte real/.test(analyzeSrc), 'ANALISAR sem editor manual');
+  console.log('  ✓ TEST 43.3: ANALISAR sem editor manual de fontes.');
 
   // 43.5 Revisão do ANALISAR: correções específicas; estilo de jogo intencional não vira defeito.
   const none = reviewTypography('NONE', 'letras deformadas');
@@ -3381,8 +3348,8 @@ console.log('\n44. Testando ponta a ponta: texto pedido vai para o prompt em tod
     const r = generateSimpleThumbnail({ ...CYCLE6_BASE, videoTitle: 'Vale a pena?', ideaDescription: 'Eu apontando para a tela', thumbnailText: PT, targetModel });
     assert.ok(r.finalPrompt.includes(PT), `${targetModel}: texto em português exato (acentos, pontuação)`);
     assert.ok(!/Do not draw the headline/.test(r.finalPrompt), `${targetModel}: nunca pede para omitir o texto pedido`);
-    assert.ok(/Render this headline|written in large bold clean letters|must read exactly/.test(r.finalPrompt), `${targetModel}: ordem de renderizar o texto`);
-    assert.ok(/one coherent display typeface|consistent letterforms/.test(r.finalPrompt), `${targetModel}: regras contra letras malfeitas`);
+    assert.ok(/Render the headline|with the words ".*" written/.test(r.finalPrompt), `${targetModel}: ordem de renderizar o texto`);
+    assert.ok(/display face|display typeface|display lettering/.test(r.finalPrompt), `${targetModel}: letras construídas, não pseudo-letras`);
   }
   console.log('  ✓ TEST 44.1: Texto pedido aparece com acentos e com ordem de renderizar em todos os 7 adaptadores.');
 
@@ -3390,17 +3357,17 @@ console.log('\n44. Testando ponta a ponta: texto pedido vai para o prompt em tod
   for (const targetModel of ALL_MODELS) {
     const r = generateSimpleThumbnail({ ...CYCLE6_BASE, videoTitle: 'Vale a pena?', ideaDescription: 'Eu apontando para a tela', thumbnailText: PT, textTreatment: 'CAMADA_REAL', targetModel });
     assert.ok(/Do not draw the headline text|real typography layer/.test(r.finalPrompt), `${targetModel}: deixa espaço para a camada`);
-    assert.ok(!/Render this headline exactly/.test(r.finalPrompt), `${targetModel}: sem ordem de renderizar`);
+    assert.ok(!/Render the headline/.test(r.finalPrompt), `${targetModel}: sem ordem de renderizar`);
     assert.ok(/Keep the scene|keep the existing scene/i.test(r.finalPrompt), `${targetModel}: preserva a cena`);
   }
   const layerPlan = generateSimpleThumbnail({ ...CYCLE6_BASE, videoTitle: 'x', ideaDescription: 'y', thumbnailText: PT, textTreatment: 'CAMADA_REAL', targetModel: 'GERAL' }).typographyPlan;
-  assert.match(layerPlan, /ANALISAR > Adicionar texto com fonte real/, 'Caminho real para concluir a imagem');
+  assert.match(layerPlan, /adicione o texto exato em um editor de imagem/, 'Caminho real para concluir a imagem');
   console.log('  ✓ TEST 44.2: Camada depois reserva espaço e mostra o caminho para concluir (ANALISAR > editor).');
 
   // 44.3 Sem texto: nenhuma sobreposição, nenhum texto inventado.
   for (const targetModel of ALL_MODELS) {
     const r = generateSimpleThumbnail({ ...CYCLE6_BASE, videoTitle: 'Vale a pena?', ideaDescription: 'Eu apontando', thumbnailText: '', textTreatment: 'SEM_TEXTO', targetModel });
-    assert.ok(!/must read exactly|Render this headline|Do not draw the headline text/.test(r.finalPrompt), `${targetModel}: SEM TEXTO não adiciona texto`);
+    assert.ok(!/Render the headline|Do not draw the headline text/.test(r.finalPrompt), `${targetModel}: SEM TEXTO não adiciona texto`);
   }
   console.log('  ✓ TEST 44.3: Sem texto, nenhum adaptador adiciona sobreposição.');
 
@@ -3423,12 +3390,89 @@ console.log('\n44. Testando ponta a ponta: texto pedido vai para o prompt em tod
       const out = improvePrompt({ rawPrompt: raw, targetModel }).improvedPrompt;
       const wanted = raw.includes('VALE') ? 'VALE A PENA?' : 'NÃO COMPRE';
       assert.ok(out.includes(wanted), `IMPROVE ${targetModel}: não remove o texto pedido "${wanted}"`);
-      assert.ok(/Render this headline|written in large bold clean letters|must read exactly/.test(out), `IMPROVE ${targetModel}: pede para renderizar o texto`);
+      assert.ok(/Render the headline|with the words ".*" written/.test(out), `IMPROVE ${targetModel}: pede para renderizar o texto`);
       assert.ok(!/Do not draw the headline|Reserve clean, uncluttered negative space for post-production typography/.test(out), `IMPROVE ${targetModel}: não instrui a omitir o texto`);
     }
   }
   assert.ok(!/8k/i.test(improvePrompt({ rawPrompt: raws[0], targetModel: 'GERAL' }).improvedPrompt.split('NEGATIVE')[0]), 'IMPROVE continua removendo slop');
   console.log('  ✓ TEST 44.5: IMPROVE mantém o texto pedido, instrui o gerador a renderizá-lo e continua removendo o slop.');
+}
+
+// 45. Raciocínio tipográfico: o motor decide como a tipografia deve parecer, e o juiz avalia a qualidade das instruções.
+console.log('\n45. Testando raciocínio tipográfico: decisões por caso, juiz de qualidade e ausência de frase colada...');
+{
+  const { generateSimpleThumbnail, improvePrompt } = await import('../src/lib/simpleEngine/engine.ts');
+  const { typographyBrief, genreOf, reviseTypographyRequest } = await import('../src/lib/typography/reasoning.ts');
+  const { judgeTypography, boilerplate, typographySentences } = await import('../tests/quality-lab/typography-judge.mjs');
+  const { GOLDEN_CASES } = await import('../tests/quality-lab/golden-cases.mjs');
+
+  // 45.1 Gênero decidido pelo pedido, não por uma palavra solta.
+  assert.equal(genreOf({ title: 'Zerei GTA San Andreas em 2026', idea: 'título gigante do jogo', text: 'SAN ANDREAS' }), 'gaming', 'GTA = gamer');
+  assert.equal(genreOf({ title: 'Vale a pena comprar o PS5 em 2026?', idea: 'expressão séria', text: 'NÃO COMPRE AGORA' }), 'opinion', 'Veredicto no título = opinião, mesmo com console');
+  assert.equal(genreOf({ title: 'iPhone 17 Pro vs Galaxy S26 Ultra', idea: 'dois celulares', text: 'QUAL COMPRAR?' }), 'tech', 'Comparação de celulares = tecnologia');
+  assert.equal(genreOf({ idea: 'epic gaming thumbnail', text: 'VALE A PENA' }), 'gaming', 'Gênero pedido vence um veredicto na manchete');
+  assert.equal(genreOf({ title: 'Receita de feijoada', idea: 'prato fumegante', text: 'FEIJOADA' }), 'food', 'Comida');
+  assert.equal(genreOf({ title: 'Coisa qualquer', idea: 'algo', text: 'OI' }), 'general', 'Sem pista = geral');
+  console.log('  ✓ TEST 45.1: Gênero vem do pedido (título, ideia, manchete), na ordem certa.');
+
+  // 45.2 Cada gênero recebe construção de letra própria; nada de frase única colada em todos.
+  const builds = ['gaming', 'tech', 'opinion', 'food', 'general'].map(g => {
+    const ctx = { gaming: { title: 'Zerei o jogo' }, tech: { title: 'Testei o notebook' }, opinion: { title: 'Vale a pena?' }, food: { title: 'Receita de feijoada' }, general: { title: 'Coisa' } }[g];
+    return typographyBrief({ text: 'TITULO CURTO', ...ctx }).instruction.split(/(?<=\.)\s/)[1];
+  });
+  assert.equal(new Set(builds).size, builds.length, 'Cada gênero tem sua construção de letra');
+  console.log('  ✓ TEST 45.2: Cinco gêneros, cinco construções de letra distintas.');
+
+  // 45.3 Ordem de renderizar, acentos e preservação, sem excesso: cinco frases, e a preservação sempre presente.
+  const brief = typographyBrief({ text: 'O GRANDE ANÚNCIO: É HOJE, ÇA É SÉRIO', title: 'O grande anúncio' });
+  assert.match(brief.instruction, /^Render the headline "O GRANDE ANÚNCIO: É HOJE, ÇA É SÉRIO" exactly as written, every letter, accent, cedilha and punctuation mark/, 'Texto exato com acentos e cedilha');
+  assert.ok((brief.instruction.match(/[.!?](?=\s|$)/g) || []).length <= 6, 'No máximo seis frases de tipografia');
+  assert.match(brief.instruction, /keep the background, scene, lighting, face, product and logos as they are/, 'Preserva o restante da imagem');
+  const plain = typographyBrief({ text: 'SAN ANDREAS', title: 'Zerei GTA' });
+  assert.ok(!/accent|cedilha/.test(plain.instruction.split('.')[0]), 'Sem acentos no texto: não menciona acento');
+  console.log('  ✓ TEST 45.3: Instrução precisa, sem excesso, preserva o restante da imagem e cita só marcas que existem.');
+
+  // 45.4 Juiz de qualidade nos casos do laboratório (contradição, coerência, gênero, preservação, sem frase colada).
+  const cases = GOLDEN_CASES.filter(c => /^2[1-8]_typography/.test(c.id));
+  assert.equal(cases.length, 8, 'Oito casos de tipografia no laboratório');
+  const GENRE = { '21_typography_gta_stylized_title': 'gaming', '22_typography_tech_short': 'tech', '23_typography_opinion_pt': 'opinion', '24_typography_comparison': 'tech', '25_typography_accents_cedilha': 'general', '26_typography_overloaded_improve': 'gaming', '27_typography_no_text': undefined, '28_typography_game_logo_preserved': 'gaming' };
+  const prompts = {};
+  for (const c of cases) {
+    const p = c.kind === 'improve'
+      ? improvePrompt({ rawPrompt: c.input.rawPrompt, targetModel: c.input.targetModel }).improvedPrompt
+      : generateSimpleThumbnail({ aspectRatio: '16:9', stylePreset: 'Natural', realismLevel: 'Alto', preserveFace: false, preserveProduct: false, textTreatment: 'AUTO', thumbnailText: '', references: [], targetModel: 'GERAL', ...c.input }).finalPrompt;
+    prompts[c.id] = p;
+    const requested = Boolean(c.expect?.exactText) || c.kind === 'improve';
+    const verdict = judgeTypography(p, {
+      exactText: c.expect?.exactText,
+      requestedText: requested && c.id !== '27_typography_no_text',
+      genre: GENRE[c.id],
+      protectsLogo: c.id === '28_typography_game_logo_preserved',
+      mustNotContain: c.id === '26_typography_overloaded_improve' ? [/3D bevel|chrome letters|thick outline|heavy drop shadow|glowing neon text|8k ultra detailed text/i] : [],
+    });
+    assert.ok(verdict.pass, `${c.id}: juiz reprovou: ${verdict.checks.filter(x => !x.ok).map(x => x.id + ' (' + x.detail + ')').join('; ')}`);
+  }
+  console.log('  ✓ TEST 45.4: Juiz de qualidade aprova os 8 casos (texto exato, sem contradição, gênero, logotipo, preservação).');
+
+  // 45.5 Sem frase colada: a mesma sentença de tipografia não aparece em quatro ou mais casos (preservação é regra, à parte).
+  const shared = boilerplate(prompts, 4).filter(b => !/^Change only the lettering/.test(b.sentence) && !/Do not add overlay text|Reserve clean negative space for later typography/.test(b.sentence));
+  assert.deepEqual(shared, [], 'Nenhuma frase de tipografia colada em quatro ou mais casos');
+  console.log('  ✓ TEST 45.5: Nenhuma frase de tipografia colada em todos os prompts.');
+
+  // 45.6 MELHORAR: troca efeitos ruins por direções boas e mantém o título pedido.
+  const rev = reviseTypographyRequest('thumbnail do PS5, texto "VALE A PENA?" com 3D bevel e glow, contorno grosso');
+  assert.ok(!/3D bevel|glow|contorno grosso/.test(rev.text), 'Efeitos ruins saem do texto');
+  assert.ok(rev.text.includes('"VALE A PENA?"'), 'Título entre aspas é preservado');
+  assert.ok(rev.changes.length >= 2, 'Cada troca é explicada');
+  const quoted = reviseTypographyRequest('escrito "3D BEVEL GLOW" na tela');
+  assert.ok(quoted.text.includes('"3D BEVEL GLOW"'), 'Texto entre aspas nunca é reescrito, mesmo com palavra de efeito');
+  console.log('  ✓ TEST 45.6: MELHORAR troca efeitos ruins, explica cada troca e não mexe no título.');
+
+  // 45.7 Sem texto pedido: nenhum título é inventado e nenhuma direção de letra aparece.
+  const none = generateSimpleThumbnail({ aspectRatio: '16:9', stylePreset: 'Natural', realismLevel: 'Alto', preserveFace: false, preserveProduct: false, textTreatment: 'AUTO', thumbnailText: '', references: [], targetModel: 'GERAL', videoTitle: 'Testei o PS2', ideaDescription: 'Eu segurando o PS2 na mesa' }).finalPrompt;
+  assert.ok(!/Render the headline|with the words ".*" written|real typography layer/.test(none), 'Sem texto: nenhuma ordem de renderizar e nenhum título');
+  assert.ok(typographySentences(none).every(x => /not|no |never|Reserve|clean|stay accurate/i.test(x)), 'Sem texto: só instruções negativas, nenhuma letra descrita');
+  console.log('  ✓ TEST 45.7: Sem texto pedido, nenhum título inventado.');
 }
 
 console.log('\n✅ TODOS OS TESTES PASSARAM COM SUCESSO! VALIDAÇÃO CONCLUÍDA.');

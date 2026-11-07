@@ -14,13 +14,6 @@ export interface StrategyDecision {
   reason: string;
 }
 
-/** Rules that keep generated lettering consistent, restrained and readable. Shared by every adapter. */
-export const TYPE_QUALITY_RULES =
-  'Use one coherent display typeface family with consistent glyph shapes, even stroke weight and baseline. ' +
-  'Restrained outline and shadow: at most one clean edge, no glow, no bevel, no 3D extrusion. ' +
-  'Strong contrast, readable at 120px phone size. No unnecessary mixing of unrelated lettering styles; ' +
-  'keep an expressive gaming look only while it stays clean and legible.';
-
 export function chooseTypographyStrategy(input: { text?: string; treatment?: string }): StrategyDecision {
   const text = (input.text || '').trim();
   if (!text || input.treatment === 'SEM_TEXTO') {

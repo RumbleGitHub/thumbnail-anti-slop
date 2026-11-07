@@ -16,6 +16,9 @@
 //     mustNotInclude: [...]          -> must not appear anywhere in the prompt
 //     exactText: string              -> visible overlay text that must be kept verbatim
 
+// A typography instruction that asks the generator to render the requested headline (any supported adapter).
+const RENDER_TYPO = /Render the headline "[^"]+" exactly as written|with the words "[^"]+" written/;
+
 const ref = (id, role, extra = {}) => ({ id, name: id, url: `https://example.com/${id}.jpg`, role, ...extra });
 
 export const LAB_MODELS = [
@@ -220,7 +223,7 @@ export const GOLDEN_CASES = [
     expect: {
       person: true,
       exactText: 'AÇÃO: NÃO COMPRE!',
-      mustInclude: [/Render this headline exactly as written|written in large bold clean letters/],
+      mustInclude: [/Render the headline "[^"]+" exactly as written|with the words "[^"]+" written/],
       mustNotInclude: ['real typography layer', 'Anton typeface'],
     },
   },
@@ -235,7 +238,7 @@ export const GOLDEN_CASES = [
       textTreatment: 'RENDER_IN_IMAGE',
       references: [],
     },
-    expect: { exactText: 'VALE A PENA?', mustInclude: [/The only visible text must read exactly|written in large bold clean letters/], mustNotInclude: ['Do not draw the headline'] },
+    expect: { exactText: 'VALE A PENA?', mustInclude: [/Render the headline "[^"]+" exactly as written|with the words "[^"]+" written/], mustNotInclude: ['Do not draw the headline'] },
   },
   {
     id: '19_typography_gaming_title_large',
@@ -247,7 +250,7 @@ export const GOLDEN_CASES = [
       thumbnailText: 'SAN ANDREAS',
       references: [],
     },
-    expect: { exactText: 'SAN ANDREAS', mustInclude: [/Render this headline exactly as written|written in large bold clean letters/], mustNotInclude: ['real typography layer'] },
+    expect: { exactText: 'SAN ANDREAS', mustInclude: [/Render the headline "[^"]+" exactly as written|with the words "[^"]+" written/], mustNotInclude: ['real typography layer'] },
   },
   {
     id: '20_typography_camada_depois_real_layer',
@@ -261,6 +264,63 @@ export const GOLDEN_CASES = [
       references: [],
     },
     expect: { exactText: 'AÇÃO: NÃO COMPRE!', mustInclude: [/Do not draw the headline text|for a real typography layer/], mustNotInclude: ['must read exactly'] },
+  },
+  // Typography reasoning (synthetic fixtures). Judged by the typography rubric in suite 45, not by word presence alone.
+  {
+    id: '21_typography_gta_stylized_title',
+    title: 'GTA com título grande e estilizado: letras de jogo com personalidade, sem pseudo-letras',
+    kind: 'create',
+    input: { videoTitle: 'Zerei GTA San Andreas em 2026', ideaDescription: 'Eu com o controle na frente da TV, título gigante estilizado do jogo', thumbnailText: 'SAN ANDREAS', references: [ref('minha-foto', 'PESSOA')] },
+    expect: { person: true, exactText: 'SAN ANDREAS', mustInclude: [RENDER_TYPO] },
+  },
+  {
+    id: '22_typography_tech_short',
+    title: 'Tecnologia com texto curto: sans geométrica limpa, sem brilho',
+    kind: 'create',
+    input: { videoTitle: 'Testei o Legion Go', ideaDescription: 'Legion Go na mão, tela ligada', thumbnailText: 'TESTE COMPLETO', references: [] },
+    expect: { exactText: 'TESTE COMPLETO', mustInclude: [RENDER_TYPO] },
+  },
+  {
+    id: '23_typography_opinion_pt',
+    title: 'Opinião em português: caixa-alta pesada e contraste máximo',
+    kind: 'create',
+    input: { videoTitle: 'Vale a pena comprar o PS5 em 2026?', ideaDescription: 'Eu falando olhando para a câmera, expressão séria', thumbnailText: 'NÃO COMPRE AGORA', references: [] },
+    expect: { exactText: 'NÃO COMPRE AGORA', mustInclude: [RENDER_TYPO] },
+  },
+  {
+    id: '24_typography_comparison',
+    title: 'Comparação de produtos: título curto que decide, sem fundir os produtos',
+    kind: 'create',
+    input: { videoTitle: 'iPhone 17 Pro vs Galaxy S26 Ultra', ideaDescription: 'Dois celulares lado a lado', thumbnailText: 'QUAL COMPRAR?', references: [] },
+    expect: { exactText: 'QUAL COMPRAR?', mustInclude: [RENDER_TYPO], mustNotInclude: ['Do not draw the headline'] },
+  },
+  {
+    id: '25_typography_accents_cedilha',
+    title: 'Título com acentos e cedilha preservados exatamente',
+    kind: 'create',
+    input: { videoTitle: 'O grande anúncio', ideaDescription: 'Eu com uma caixa de ação, sorriso leve', thumbnailText: 'O GRANDE ANÚNCIO: É HOJE, ÇA É SÉRIO', references: [] },
+    expect: { exactText: 'O GRANDE ANÚNCIO: É HOJE, ÇA É SÉRIO', mustInclude: [RENDER_TYPO] },
+  },
+  {
+    id: '26_typography_overloaded_improve',
+    title: 'Prompt cheio de efeitos tipográficos exagerados: troca por direções boas, mantém o título',
+    kind: 'improve',
+    input: { rawPrompt: 'epic gaming thumbnail, text "VALE A PENA" with 3D bevel chrome letters and thick outline, heavy drop shadow, glowing neon text, 8k ultra detailed text, lots of particles', targetModel: 'GERAL' },
+    expect: { exactText: 'VALE A PENA', mustInclude: [RENDER_TYPO], mustNotInclude: [/3D bevel|chrome letters|thick outline|heavy drop shadow|glowing neon text|8k ultra detailed text/i] },
+  },
+  {
+    id: '27_typography_no_text',
+    title: 'Sem texto pedido: nenhum título inventado',
+    kind: 'create',
+    input: { videoTitle: 'Testei o PS2', ideaDescription: 'Eu segurando o PS2 na mesa', thumbnailText: '', references: [] },
+    expect: { mustNotInclude: [/Render the headline|real typography layer|Do not draw the headline text/] },
+  },
+  {
+    id: '28_typography_game_logo_preserved',
+    title: 'Logotipo de jogo que precisa permanecer intacto, com o texto pedido',
+    kind: 'create',
+    input: { videoTitle: 'Jogando Elden Ring', ideaDescription: 'Eu com o controle, a capa com o logotipo do jogo visível', thumbnailText: 'ELDEN RING', references: [ref('capa-elden', 'PRODUTO')] },
+    expect: { exactText: 'ELDEN RING', mustInclude: [/logo|printed markings|official/i] },
   },
 ];
 
