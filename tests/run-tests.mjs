@@ -753,10 +753,8 @@ console.log('\n19. Testando Novos Tipos de Referência, Isolamento de Atributos 
     preserveFace: false,
     preserveProduct: false
   });
-  // Default (AUTO) = real typography layer: the exact text is kept verbatim, but the image model is told
-  // NOT to draw it (typography plan, suite 43). Explicit in-image requests keep the old literal rule.
-  assert.ok(resExato.finalPrompt.includes('Do not draw the headline text "AGORA FUNCIONA"'), 'AUTO: texto exato não é desenhado pela IA');
-  assert.ok(resExato.finalPrompt.includes('"AGORA FUNCIONA"'), 'Deve manter AGORA FUNCIONA exatamente, sem alteração');
+  // Default (AUTO) renders the headline for copy-and-paste: the exact wording is an instruction to the generator.
+  assert.ok(resExato.finalPrompt.includes('The only visible text must read exactly: "AGORA FUNCIONA"'), 'AUTO: a imagem recebe a ordem de renderizar o texto exato');
   console.log('  ✓ TEXTO EXATO: Instrução literal "AGORA FUNCIONA" validada sem reescrita.');
 
   // Test 19F: FONTE REAL INFORMADA PELO USUÁRIO (ex: Anton)
@@ -773,10 +771,10 @@ console.log('\n19. Testando Novos Tipos de Referência, Isolamento de Atributos 
     preserveFace: false,
     preserveProduct: false
   });
-  // The font belongs to the real typography layer (plan), not to the image prompt: no promise that the
-  // image model draws Anton.
+  // AUTO: the font is a direction for the generator, not a promise of the real typeface.
   assert.ok(!/Anton typeface/i.test(resFonteReal.finalPrompt), 'Não promete ao gerador desenhar Anton');
-  assert.ok(/Fonte da camada: Anton/.test(resFonteReal.typographyPlan), 'Plano: Anton é a fonte da camada real');
+  assert.ok(/similar in spirit to Anton/.test(resFonteReal.finalPrompt), 'Anton entra como direção de estilo');
+  assert.ok(/Direção de fonte: Anton/.test(resFonteReal.typographyPlan), 'Plano: Anton como direção, não como camada');
   console.log('  ✓ FONTE REAL: Preservação de Anton sem nomes falsos inventados pela IA.');
 
   // Test 19G: PESSOA + PRODUTO + CENÁRIO juntos (Isolamento estrito sem vazamento de atributos)
@@ -3289,33 +3287,48 @@ console.log('\n42. Testando a lista AVOID do OpenAI (sem pessoa, sem duplicatas,
 console.log('\n43. Testando tipografia: estratégia, camada real, layout do editor e revisão de letras...');
 {
   const fs = await import('node:fs');
-  const { chooseTypographyStrategy } = await import('../src/lib/typography/strategy.ts');
+  const { chooseTypographyStrategy, extractRequestedText } = await import('../src/lib/typography/strategy.ts');
   const { REAL_FONTS } = await import('../src/lib/typography/fonts.ts');
   const L = await import('../src/lib/typography/overlayLayout.ts');
   const { reviewTypography } = await import('../src/lib/typography/analyze.ts');
   const { generateSimpleThumbnail, buildTypographyPlan } = await import('../src/lib/simpleEngine/engine.ts');
 
   // 43.1 Estratégia: o padrão é camada real; texto dentro da imagem só quando pedido.
-  assert.equal(chooseTypographyStrategy({ text: 'VALE A PENA?', treatment: 'AUTO' }).strategy, 'REAL_LAYER', 'AUTO recomenda camada real');
+  assert.equal(chooseTypographyStrategy({ text: 'VALE A PENA?', treatment: 'AUTO' }).strategy, 'IN_IMAGE', 'AUTO: o gerador renderiza o texto (copiar e colar)');
+  assert.equal(chooseTypographyStrategy({ text: 'VALE A PENA?', treatment: 'CAMADA_REAL' }).strategy, 'REAL_LAYER', 'Camada depois = escolha explícita');
   assert.equal(chooseTypographyStrategy({ text: 'VALE A PENA?', treatment: 'USAR_REFERENCIA' }).strategy, 'IN_IMAGE', 'Pedido de estilo da referência = dentro da imagem');
+  assert.equal(extractRequestedText('thumbnail do PS5, texto "VALE A PENA?", 8k'), 'VALE A PENA?', 'Texto entre aspas é pedido');
+  assert.equal(extractRequestedText('guy with a ps5, headline: AÇÃO! NÃO COMPRE'), 'AÇÃO! NÃO COMPRE', 'Caixa-alta após o cue é pedido');
+  assert.equal(extractRequestedText('thumbnail do PS5 com o texto NÃO COMPRE em destaque, 8k'), 'NÃO COMPRE', 'Para em palavra minúscula');
+  assert.equal(extractRequestedText('texto de um jogo muito bom, luz natural'), '', 'Minúsculas após o cue não viram texto pedido');
+  assert.equal(extractRequestedText('context of a cat'), '', 'Cue não casa dentro de outra palavra');
   assert.equal(chooseTypographyStrategy({ text: 'VALE A PENA?', treatment: 'RENDER_IN_IMAGE' }).strategy, 'IN_IMAGE', 'Pedido explícito = dentro da imagem');
   assert.equal(chooseTypographyStrategy({ text: '', treatment: 'AUTO' }).strategy, 'NONE', 'Sem texto = nenhuma');
   assert.equal(chooseTypographyStrategy({ text: 'X', treatment: 'SEM_TEXTO' }).strategy, 'NONE', 'SEM_TEXTO = nenhuma');
-  console.log('  ✓ TEST 43.1: Estratégia padrão é camada real; texto na imagem só com pedido explícito.');
+  console.log('  ✓ TEST 43.1: Padrão renderiza o texto; camada real só por escolha explícita; extração do texto pedido.');
 
-  // 43.2 Prompt: no modo padrão a IA não recebe ordem para desenhar o texto, mas o texto exato é preservado
-  // com acentos, maiúsculas e pontuação; nenhuma promessa de fonte ao gerador.
+  // 43.2 End-to-end prompt (copy-and-paste): with requested text, the image prompt tells the generator to
+  // render it, keeping every accent; the real layer is an explicit alternative with a path to completion.
   const pt = 'AÇÃO: NÃO COMPRE, é sério!';
-  const real = generateSimpleThumbnail({ ...CYCLE6_BASE, videoTitle: 'Vale a pena?', ideaDescription: 'Eu apontando para a tela', thumbnailText: pt, fontName: 'Anton', targetModel: 'GERAL' });
-  assert.ok(real.finalPrompt.includes(`"${pt}"`), 'Texto exato com acentos e pontuação preservado no prompt');
-  assert.ok(real.finalPrompt.includes('Do not draw the headline text'), 'Camada real: a IA não desenha o título');
-  assert.ok(!/must read exactly/.test(real.finalPrompt), 'Camada real: sem a ordem de desenhar o texto');
-  assert.ok(!/Anton typeface/i.test(real.finalPrompt), 'Sem promessa de desenhar Anton');
-  assert.match(real.typographyPlan, /Estratégia: camada de texto real/, 'Plano diz que o texto vira camada real');
-  assert.match(real.typographyPlan, /Fonte da camada: Anton/, 'Plano escolhe a fonte instalada');
+  const base = { ...CYCLE6_BASE, videoTitle: 'Vale a pena?', ideaDescription: 'Eu apontando para a tela', thumbnailText: pt, fontName: 'Anton', targetModel: 'GERAL' };
+  const auto = generateSimpleThumbnail(base);
+  assert.ok(auto.finalPrompt.includes(`"${pt}"`), 'AUTO: texto exato com acentos e pontuação no prompt');
+  assert.ok(auto.finalPrompt.includes('Render this headline exactly as written'), 'AUTO: o gerador recebe a ordem de renderizar');
+  assert.ok(auto.finalPrompt.includes('one coherent display typeface'), 'AUTO: regras contra letras malfeitas');
+  assert.ok(!/Do not draw the headline/.test(auto.finalPrompt), 'AUTO: nunca pede para deixar o texto de fora');
+  assert.ok(!/Anton typeface/i.test(auto.finalPrompt), 'Sem promessa de desenhar Anton');
+  assert.match(auto.typographyPlan, /Estratégia: a imagem renderiza o texto exato/, 'Plano: a imagem renderiza');
+  assert.match(auto.typographyPlan, /Direção de fonte: Anton/, 'Plano: Anton é direção de estilo');
+  const layer = generateSimpleThumbnail({ ...base, textTreatment: 'CAMADA_REAL' });
+  assert.ok(layer.finalPrompt.includes('Do not draw the headline text'), 'Camada depois: a IA deixa o espaço e não desenha');
+  assert.ok(!/must read exactly|Render this headline/.test(layer.finalPrompt), 'Camada depois: sem ordem de desenhar');
+  assert.match(layer.typographyPlan, /Depois de gerar a imagem: ANALISAR > Adicionar texto com fonte real/, 'Camada depois: caminho para completar');
+  assert.match(layer.typographyPlan, /Fonte da camada: Anton/, 'Camada depois: Anton instalada');
   const inImg = generateSimpleThumbnail({ ...CYCLE6_BASE, videoTitle: 'Vale a pena?', ideaDescription: 'Eu apontando', thumbnailText: 'VALE A PENA?', textTreatment: 'RENDER_IN_IMAGE', targetModel: 'GERAL' });
   assert.match(inImg.finalPrompt, /The only visible text must read exactly: "VALE A PENA\?"/, 'Pedido explícito mantém a regra literal');
-  console.log('  ✓ TEST 43.2: Texto exato em português preservado; a IA não recebe ordem de desenhar; fonte só na camada.');
+  const noText = generateSimpleThumbnail({ ...base, textTreatment: "SEM_TEXTO" });
+  assert.ok(!/headline|real typography layer|must read exactly/.test(noText.finalPrompt), 'Sem texto: nenhuma sobreposição nem camada');
+  console.log('  ✓ TEST 43.2: CREATE copia e cola com instrução de renderizar o texto; camada real tem caminho de conclusão; sem texto, nada é sobreposto.');
 
   // 43.3 Fontes: só as cinco OFL instaladas, arquivos existentes e licença de cada família.
   assert.deepEqual(REAL_FONTS.map(f => f.family).sort(), ['Anton', 'Archivo Black', 'Barlow Condensed', 'Bebas Neue', 'Oswald'], 'Cinco fontes OFL');
@@ -3354,6 +3367,68 @@ console.log('\n43. Testando tipografia: estratégia, camada real, layout do edit
   assert.match(bad.correction, /Preserve a composição/, 'Preserva composição e logotipos');
   assert.match(bad.correction, /versão limpa/, 'Letras falsas: texto real sobre versão limpa');
   console.log('  ✓ TEST 43.5: Revisão cita correções específicas; estilo de jogo legível não é tratado como defeito.');
+}
+
+// 44. Ponta a ponta: CREATE e IMPROVE geram prompts para copiar e colar com o texto pedido, em todos os adaptadores.
+console.log('\n44. Testando ponta a ponta: texto pedido vai para o prompt em todos os adaptadores, camada real e IMPROVE...');
+{
+  const { generateSimpleThumbnail, improvePrompt } = await import('../src/lib/simpleEngine/engine.ts');
+  const ALL_MODELS = ['GERAL', 'OPENAI_GPT_IMAGE_2_5_SUNBURST', 'OPENAI_GPT_IMAGE_2_5_FLARE', 'GOOGLE_NANO_BANANA_2', 'MIDJOURNEY_V8_2', 'MIDJOURNEY_NIJI_7', 'FLUX_2_PRO'];
+  const PT = 'AÇÃO: NÃO COMPRE, é sério!';
+
+  // 44.1 CREATE com texto pedido (padrão): cada adaptador recebe o texto exato e a ordem de renderizar.
+  for (const targetModel of ALL_MODELS) {
+    const r = generateSimpleThumbnail({ ...CYCLE6_BASE, videoTitle: 'Vale a pena?', ideaDescription: 'Eu apontando para a tela', thumbnailText: PT, targetModel });
+    assert.ok(r.finalPrompt.includes(PT), `${targetModel}: texto em português exato (acentos, pontuação)`);
+    assert.ok(!/Do not draw the headline/.test(r.finalPrompt), `${targetModel}: nunca pede para omitir o texto pedido`);
+    assert.ok(/Render this headline|written in large bold clean letters|must read exactly/.test(r.finalPrompt), `${targetModel}: ordem de renderizar o texto`);
+    assert.ok(/one coherent display typeface|consistent letterforms/.test(r.finalPrompt), `${targetModel}: regras contra letras malfeitas`);
+  }
+  console.log('  ✓ TEST 44.1: Texto pedido aparece com acentos e com ordem de renderizar em todos os 7 adaptadores.');
+
+  // 44.2 Camada depois: espaço reservado, sem ordem de desenhar, e caminho real para concluir a imagem.
+  for (const targetModel of ALL_MODELS) {
+    const r = generateSimpleThumbnail({ ...CYCLE6_BASE, videoTitle: 'Vale a pena?', ideaDescription: 'Eu apontando para a tela', thumbnailText: PT, textTreatment: 'CAMADA_REAL', targetModel });
+    assert.ok(/Do not draw the headline text|real typography layer/.test(r.finalPrompt), `${targetModel}: deixa espaço para a camada`);
+    assert.ok(!/Render this headline exactly/.test(r.finalPrompt), `${targetModel}: sem ordem de renderizar`);
+    assert.ok(/Keep the scene|keep the existing scene/i.test(r.finalPrompt), `${targetModel}: preserva a cena`);
+  }
+  const layerPlan = generateSimpleThumbnail({ ...CYCLE6_BASE, videoTitle: 'x', ideaDescription: 'y', thumbnailText: PT, textTreatment: 'CAMADA_REAL', targetModel: 'GERAL' }).typographyPlan;
+  assert.match(layerPlan, /ANALISAR > Adicionar texto com fonte real/, 'Caminho real para concluir a imagem');
+  console.log('  ✓ TEST 44.2: Camada depois reserva espaço e mostra o caminho para concluir (ANALISAR > editor).');
+
+  // 44.3 Sem texto: nenhuma sobreposição, nenhum texto inventado.
+  for (const targetModel of ALL_MODELS) {
+    const r = generateSimpleThumbnail({ ...CYCLE6_BASE, videoTitle: 'Vale a pena?', ideaDescription: 'Eu apontando', thumbnailText: '', textTreatment: 'SEM_TEXTO', targetModel });
+    assert.ok(!/must read exactly|Render this headline|Do not draw the headline text/.test(r.finalPrompt), `${targetModel}: SEM TEXTO não adiciona texto`);
+  }
+  console.log('  ✓ TEST 44.3: Sem texto, nenhum adaptador adiciona sobreposição.');
+
+  // 44.4 Logotipo existente é preservado quando há texto e produto de referência.
+  const logo = generateSimpleThumbnail({
+    ...CYCLE6_BASE, videoTitle: 'Testei o PS5', ideaDescription: 'Eu segurando o PS5, logo da Sony visível', thumbnailText: 'NÃO COMPRE',
+    references: [{ id: 'ps5', name: 'ps5', url: 'https://example.com/ps5.jpg', role: 'PRODUTO' }], targetModel: 'GERAL'
+  });
+  assert.ok(/logo|printed markings|official/i.test(logo.finalPrompt), 'Logotipos existentes ficam preservados');
+  assert.ok(logo.finalPrompt.includes('NÃO COMPRE'), 'Texto pedido continua presente junto ao produto');
+  console.log('  ✓ TEST 44.4: Logotipos do produto e o texto pedido coexistem no prompt.');
+
+  // 44.5 IMPROVE: texto pedido não é removido e recebe a ordem de renderizar, em GERAL e nos adaptadores.
+  const raws = [
+    'epic gaming thumbnail, guy holding a ps5, text "VALE A PENA?", 8k',
+    'thumbnail do PS5 com o texto NÃO COMPRE em destaque, 8k',
+  ];
+  for (const raw of raws) {
+    for (const targetModel of ['GERAL', 'MIDJOURNEY_V8_2', 'OPENAI_GPT_IMAGE_2_5_SUNBURST']) {
+      const out = improvePrompt({ rawPrompt: raw, targetModel }).improvedPrompt;
+      const wanted = raw.includes('VALE') ? 'VALE A PENA?' : 'NÃO COMPRE';
+      assert.ok(out.includes(wanted), `IMPROVE ${targetModel}: não remove o texto pedido "${wanted}"`);
+      assert.ok(/Render this headline|written in large bold clean letters|must read exactly/.test(out), `IMPROVE ${targetModel}: pede para renderizar o texto`);
+      assert.ok(!/Do not draw the headline|Reserve clean, uncluttered negative space for post-production typography/.test(out), `IMPROVE ${targetModel}: não instrui a omitir o texto`);
+    }
+  }
+  assert.ok(!/8k/i.test(improvePrompt({ rawPrompt: raws[0], targetModel: 'GERAL' }).improvedPrompt.split('NEGATIVE')[0]), 'IMPROVE continua removendo slop');
+  console.log('  ✓ TEST 44.5: IMPROVE mantém o texto pedido, instrui o gerador a renderizá-lo e continua removendo o slop.');
 }
 
 console.log('\n✅ TODOS OS TESTES PASSARAM COM SUCESSO! VALIDAÇÃO CONCLUÍDA.');

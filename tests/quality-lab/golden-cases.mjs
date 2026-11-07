@@ -220,8 +220,8 @@ export const GOLDEN_CASES = [
     expect: {
       person: true,
       exactText: 'AÇÃO: NÃO COMPRE!',
-      mustInclude: ['real typography layer'],
-      mustNotInclude: ['must read exactly', 'Anton typeface'],
+      mustInclude: [/Render this headline exactly as written|written in large bold clean letters/],
+      mustNotInclude: ['real typography layer', 'Anton typeface'],
     },
   },
   {
@@ -235,7 +235,7 @@ export const GOLDEN_CASES = [
       textTreatment: 'RENDER_IN_IMAGE',
       references: [],
     },
-    expect: { exactText: 'VALE A PENA?', mustNotInclude: ['Do not draw the headline'] },
+    expect: { exactText: 'VALE A PENA?', mustInclude: [/The only visible text must read exactly|written in large bold clean letters/], mustNotInclude: ['Do not draw the headline'] },
   },
   {
     id: '19_typography_gaming_title_large',
@@ -247,7 +247,20 @@ export const GOLDEN_CASES = [
       thumbnailText: 'SAN ANDREAS',
       references: [],
     },
-    expect: { exactText: 'SAN ANDREAS', mustInclude: ['real typography layer'], mustNotInclude: ['must read exactly'] },
+    expect: { exactText: 'SAN ANDREAS', mustInclude: [/Render this headline exactly as written|written in large bold clean letters/], mustNotInclude: ['real typography layer'] },
+  },
+  {
+    id: '20_typography_camada_depois_real_layer',
+    title: 'Camada depois: espaço limpo para a fonte real, sem desenhar a manchete',
+    kind: 'create',
+    input: {
+      videoTitle: 'Vale a pena comprar?',
+      ideaDescription: 'Eu apontando para a tela, cara séria',
+      thumbnailText: 'AÇÃO: NÃO COMPRE!',
+      textTreatment: 'CAMADA_REAL',
+      references: [],
+    },
+    expect: { exactText: 'AÇÃO: NÃO COMPRE!', mustInclude: [/Do not draw the headline text|for a real typography layer/], mustNotInclude: ['must read exactly'] },
   },
 ];
 

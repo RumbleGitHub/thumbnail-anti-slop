@@ -43,7 +43,7 @@ import { mergeComplementaryPlan } from './complementaryMerge.ts';
 import { PERSON_KEYWORDS } from './personDetection.ts';
 import { extractTitleNames, extractNamedProducts, extractCoverTitles, mentionsGameCovers } from './productNames.ts';
 import { parseCreatorIdea, midjourneyNoTerms } from './promptLanguage.ts';
-import { chooseTypographyStrategy } from '../typography/strategy.ts';
+import { chooseTypographyStrategy, extractRequestedText, TYPE_QUALITY_RULES } from '../typography/strategy.ts';
 
 export { extractTitleNames, extractNamedProducts, extractCoverTitles, mentionsGameCovers, parseCreatorIdea };
 
@@ -1736,7 +1736,7 @@ export function buildMidjourneyPrompt({
       ? ({ ESQUERDA: ' on the left side', DIREITA: ' on the right side', SUPERIOR: ' at the top', INFERIOR: ' at the bottom' } as const)[input.reservedSpacePosition]
       : '';
     if (chooseTypographyStrategy({ text: exactText, treatment: input.textTreatment }).strategy === 'IN_IMAGE') {
-      visualText += `, with the words "${exactText}" written in large bold clean letters${where}, no other text`;
+      visualText += `, with the words "${exactText}" written in large bold clean letters${where}, one coherent display typeface, consistent letterforms, restrained outline and shadow, readable at phone size, no other text`;
     } else {
       // Default: Midjourney does not draw the headline; a real typography layer is added afterwards.
       visualText += `, clean empty space${where || ' on the right side'} for a real typography layer added later with the exact text "${exactText}", keep the existing scene, background and lighting, no text, no letters, no pseudo-text in the image`;
@@ -2611,7 +2611,7 @@ export function withIdeaTextRequest(input: CreateThumbnailInput): CreateThumbnai
  */
 export function typographyDirectiveFor(exact: string, treatment: TextTreatment | undefined, posStr: string): string {
   if (chooseTypographyStrategy({ text: exact, treatment }).strategy === 'IN_IMAGE') {
-    return `The only visible text must read exactly: "${exact}". No other text, no pseudo-text, no invented letters.`;
+    return `The only visible text must read exactly: "${exact}". Render this headline exactly as written, with every accent and capital, no other text. ${TYPE_QUALITY_RULES} Place it on a calm area, never over faces, hands or the main product.`;
   }
   return `Do not draw the headline text "${exact}" in the image. Reserve clean, uncluttered negative space on the ${posStr} of the composition for a real typography layer added afterwards with the exact text. Keep the scene, background, lighting and every existing logo untouched. Do not bake distorted AI typography directly into the pixels.`;
 }
@@ -2871,13 +2871,9 @@ ENVIRONMENT & OPTICS: ${contextEn}. ${styleTreatment}${depthOfField}, tangible m
       // exact text is added later as a real font layer, so the scene and the space are what matter here.
       typeLine = `Do not draw the headline text "${exactText}" and do not generate any letters, words or pseudo-text in the image. Leave a clean, calm area on the ${chosenPos} for a real typography layer that will be added afterwards with the exact spelling, accents and capitalization. Keep the scene, background, lighting and every existing logo untouched; only keep that area free of clutter.`;
     } else {
-      // Explicit request for in-image text: the exact text is the only text, never rewritten.
-      typeLine = `The only visible text must read exactly: "${exactText}". No extra words. No pseudo-text. No invented letters.`;
-      if (textTreatment === 'RENDER_IN_IMAGE') {
-        typeLine += ` Render with high contrast on a calm area, never placing text over faces, hands, or main product. Strictly use only the exact text "${exactText}", zero additional words, zero pseudo-text, zero invented decorative symbols.`;
-      } else {
-        typeLine += ` Leave clean negative space on the ${chosenPos} for later typography. Do not generate random letters, words, logos, symbols, pseudo-text or decorative glyphs inside the image.`;
-      }
+      // IN_IMAGE (default): the generator renders the exact headline. Wording is never rewritten; the
+      // quality rules discourage malformed lettering (consistent glyphs, restrained effects, readability).
+      typeLine = `The only visible text must read exactly: "${exactText}". Render this headline exactly as written: every letter, accent, capital and punctuation mark, no translation, no extra words, no other text. ${TYPE_QUALITY_RULES} Place it on a calm area, never over faces, hands or the main product.`;
     }
 
     // Regra 18 & 20: a font name cannot be promised to an image model. In REAL_LAYER the font is applied
@@ -3041,11 +3037,16 @@ export function buildTypographyPlan(
   const lineCount = wordCount <= 2 ? '1 a 2 linhas' : wordCount <= 4 ? 'duas linhas no máximo' : 'duas a três linhas compactas';
 
   // The text is added afterwards as a real layer (not drawn by the image model): say so first.
-  const strategyLine = `Estratégia: camada de texto real, depois da imagem. Texto exato: "${clean}" (ortografia, acentos e maiúsculas preservados). A IA deixa o espaço ${posPt} limpo.`;
+  const strategy = chooseTypographyStrategy({ text: clean, treatment: textTreatment }).strategy;
+  const strategyLine = strategy === 'IN_IMAGE'
+    ? `Estratégia: a imagem renderiza o texto exato "${clean}" (ortografia, acentos e maiúsculas preservados), em área limpa ${posPt}. Ao colar o prompt no gerador, confira as letras de perto; se saírem tortas, gere de novo ou escolha "Camada depois".`
+    : `Estratégia: camada de texto real, depois da imagem. Texto exato: "${clean}" (ortografia, acentos e maiúsculas preservados). A IA deixa o espaço ${posPt} limpo. Depois de gerar a imagem: ANALISAR > Adicionar texto com fonte real.`;
 
   if (fontName && fontName.trim().length > 0) {
     const fName = fontName.trim();
-    return `${strategyLine}\n\nFonte da camada: ${fName} (instalada, aplicada depois; a IA não desenha essa fonte). ${lineCount}, peso bold, alto contraste.`;
+    return strategy === 'IN_IMAGE'
+      ? `${strategyLine}\n\nDireção de fonte: ${fName} (guia de estilo; o gerador não garante essa fonte exata). ${lineCount}, peso bold, alto contraste.`
+      : `${strategyLine}\n\nFonte da camada: ${fName} (instalada, aplicada depois; a IA não desenha essa fonte). ${lineCount}, peso bold, alto contraste.`;
   }
 
   // Primeiro determina a FUNÇÃO VISUAL da tipografia:
@@ -3218,7 +3219,12 @@ OPTICAL DEPTH: Balanced photographic perspective with 35mm lens, preserving auth
 TEXTURES: Authentic tactile materials, true matte finishes, natural skin texture, physical fabric and surfaces.
 STRICTLY AVOID: ${CORE_ANTI_SLOP_AVOID.slice(0, 18).join(', ')}.`;
 
-  let finalPrompt = baseNeutralPrompt;
+  // Visible text the creator asked for must reach the generator as a render instruction, never dropped.
+  const requestedText = extractRequestedText(raw);
+  let finalPrompt = requestedText
+    ? `${baseNeutralPrompt}
+TYPOGRAPHY: ${typographyDirectiveFor(requestedText, 'AUTO', 'right side')}`
+    : baseNeutralPrompt;
 
   if (normModel !== 'GERAL' && cfg && cfg.promptStyle !== 'neutral') {
     const extraNotes: string[] = [];
@@ -3234,6 +3240,8 @@ STRICTLY AVOID: ${CORE_ANTI_SLOP_AVOID.slice(0, 18).join(', ')}.`;
     const createInput: CreateThumbnailInput = {
       videoTitle: cleanSubject || subjectDescription,
       ideaDescription: subjectDescription,
+      thumbnailText: requestedText || undefined,
+      textTreatment: requestedText ? 'AUTO' : undefined,
       references: [],
       targetModel: normModel,
       aspectRatio: '16:9',
@@ -3244,7 +3252,9 @@ STRICTLY AVOID: ${CORE_ANTI_SLOP_AVOID.slice(0, 18).join(', ')}.`;
       extraInstructions: extraNotes.length > 0 ? extraNotes.join(' ') : undefined
     };
     const scenePlan = buildScenePlan(createInput);
-    const typographyDirective = 'Reserve clean, uncluttered negative space for post-production typography. Do not bake distorted AI typography directly into the pixels.';
+    const typographyDirective = requestedText
+      ? typographyDirectiveFor(requestedText, 'AUTO', 'right side')
+      : 'Reserve clean, uncluttered negative space for post-production typography. Do not bake distorted AI typography directly into the pixels.';
     const arParam = '16:9 widescreen format';
 
     finalPrompt = renderPromptForTargetModel({

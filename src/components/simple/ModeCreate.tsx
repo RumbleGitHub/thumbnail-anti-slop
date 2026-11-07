@@ -84,6 +84,7 @@ const ROLE_MICROCOPY: Record<SimpleReferenceRole, string> = {
 const TEXT_TREATMENTS: { id: TextTreatment; label: string }[] = [
   { id: 'AUTO', label: 'Automático' },
   { id: 'USAR_REFERENCIA', label: 'Usar referência' },
+  { id: 'CAMADA_REAL', label: 'Camada depois' },
   { id: 'SEM_TEXTO', label: 'Sem texto' }
 ];
 
