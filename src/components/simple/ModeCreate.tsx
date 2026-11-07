@@ -516,7 +516,7 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowCloudAi = fal
                 key={chip}
                 type="button"
                 onClick={openFilePicker}
-                className={`h-8 rounded-lg border border-zinc-800 px-3 text-[13px] text-zinc-300 transition-colors hover:border-amber-500/50 hover:text-amber-200 ${focusRing}`}
+                className={`h-10 sm:h-8 rounded-lg border border-zinc-800 px-3 text-[13px] text-zinc-300 transition-colors hover:border-amber-500/50 hover:text-amber-200 ${focusRing}`}
               >
                 {chip}
               </button>
@@ -904,7 +904,7 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowCloudAi = fal
                       onClick={() => startReplace(ref.id)}
                       aria-label={`Trocar imagem de ${ref.name}`}
                       title="Trocar imagem (mantém o papel)"
-                      className={`grid h-8 w-8 place-items-center rounded-lg bg-zinc-950/80 text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-50 ${focusRing}`}
+                      className={`grid h-10 w-10 sm:h-8 sm:w-8 place-items-center rounded-lg bg-zinc-950/80 text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-50 ${focusRing}`}
                     >
                       <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
@@ -913,7 +913,7 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowCloudAi = fal
                       onClick={() => handleRemoveRef(ref.id)}
                       aria-label={`Remover ${ref.name}`}
                       title="Remover referência"
-                      className={`grid h-8 w-8 place-items-center rounded-lg bg-zinc-950/80 text-zinc-300 transition-colors hover:bg-rose-500/80 hover:text-zinc-50 ${focusRing}`}
+                      className={`grid h-10 w-10 sm:h-8 sm:w-8 place-items-center rounded-lg bg-zinc-950/80 text-zinc-300 transition-colors hover:bg-rose-500/80 hover:text-zinc-50 ${focusRing}`}
                     >
                       <X className="h-4 w-4" aria-hidden="true" />
                     </button>
