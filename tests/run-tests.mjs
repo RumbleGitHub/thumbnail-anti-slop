@@ -3235,6 +3235,15 @@ console.log('\n41. Testando orçamento global de Neurons sob concorrência (ledg
   assert.equal(aiCalls, 3);
   console.log('  ✓ TEST 41.3: Sem Durable Object, o ledger em memória também não é furado por concorrência.');
 
+  // 41.4 /api/ai/status reports the Durable Object's usage, not the (unused) in-process ledger.
+  process.env.FREE_AI_DAILY_NEURONS = '2000';
+  const usedStub = { async used() { return 1500; }, async reserve() { throw new Error('x'); }, async settle() {}, async exhaust() {} };
+  wai.setWorkersAiBindingForTests(slowAi, usedStub);
+  assert.equal((await wai.freeAiStatusLive()).remainingNeuronsEstimate, 500, 'Status lê o uso do Durable Object');
+  wai.setWorkersAiBindingForTests(slowAi, { ...usedStub, async used() { throw new Error('down'); } });
+  assert.equal((await wai.freeAiStatusLive()).remainingNeuronsEstimate, 0, 'Ledger fora do ar: status mostra 0 (chamadas também param)');
+  console.log('  ✓ TEST 41.4: Status do orçamento vem do Durable Object; ledger inacessível mostra 0.');
+
   wai.setWorkersAiBindingForTests(undefined);
   for (const k of Object.keys(process.env)) if (!(k in savedEnv)) delete process.env[k];
   Object.assign(process.env, savedEnv);

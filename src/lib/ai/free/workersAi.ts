@@ -134,9 +134,26 @@ function estimateNeurons(model: string, inputTokens: number, outputTokens: numbe
 }
 
 /** Synchronous status for /api/ai/status (in-process view; the global ledger lives in the Durable Object). */
+/** Sync estimate from the in-process ledger (tests, `next dev`). On Workers use freeAiStatusLive. */
 export function freeAiStatus(now = Date.now()): FreeAiStatus {
   if (!isFreeAiEnabled()) return { enabled: false, provider: 'none', reason: 'FREE_AI_PROVIDER is not "workers-ai"' };
   return { enabled: true, provider: 'workers-ai', remainingNeuronsEstimate: Math.max(0, dailyBudget() - usedLocal(localLedger, now)) };
+}
+
+/**
+ * Remaining budget as the calls see it: read from the FREE_AI_BUDGET Durable Object when bound
+ * (the in-process ledger is never used there, so it would always report the full budget).
+ */
+export async function freeAiStatusLive(now = Date.now()): Promise<FreeAiStatus> {
+  const base = freeAiStatus(now);
+  if (!base.enabled) return base;
+  const { budget } = await resolveEnv();
+  if (!budget) return base;
+  try {
+    return { ...base, remainingNeuronsEstimate: Math.max(0, dailyBudget() - (await budget.used(now))) };
+  } catch {
+    return { ...base, remainingNeuronsEstimate: 0 }; // Ledger unreachable: calls fail closed too.
+  }
 }
 
 /**
