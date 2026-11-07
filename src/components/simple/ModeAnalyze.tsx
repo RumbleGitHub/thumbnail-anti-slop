@@ -18,7 +18,8 @@ import { analyzeFromMetrics } from '@/lib/simpleEngine/pixelAnalysis';
 import { measureImage, prepareImageForUpload } from '@/lib/client/imageTools';
 import { describeAiFallback } from '@/lib/ai/free/reasons';
 import { saveSimpleHistoryItem } from '@/lib/simpleEngine/history';
-import { focusRing, fieldLabel, subLabel, fieldSurface, smallField, panelSurface, secondaryButton, secondaryIdle } from './ui';
+import { focusRing, fieldLabel, subLabel, fieldSurface, smallField, panelSurface, secondaryButton, secondaryIdle, secondaryActive } from './ui';
+import { TextOverlayEditor } from './TextOverlayEditor';
 
 interface ModeAnalyzeProps {
   onNotify: (msg: string) => void;
@@ -36,6 +37,7 @@ const SOURCE_LABEL: Record<NonNullable<AnalyzeThumbnailSimpleResult['analysisSou
 
 export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowCloudAi = false }: ModeAnalyzeProps) {
   const [image, setImage] = useState<string | null>(null);
+  const [showEditor, setShowEditor] = useState(false);
   const [videoTitle, setVideoTitle] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<AnalyzeThumbnailSimpleResult | null>(null);
@@ -216,6 +218,14 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowCloudAi = fa
               <RefreshCw className="h-4 w-4" aria-hidden="true" />
               Trocar imagem
             </button>
+            <button
+              type="button"
+              onClick={() => setShowEditor(v => !v)}
+              aria-expanded={showEditor}
+              className={`${secondaryButton} ${showEditor ? secondaryActive : secondaryIdle} h-10 w-full`}
+            >
+              {showEditor ? 'Fechar editor de texto' : 'Adicionar texto com fonte real'}
+            </button>
 
             {titleField}
 
@@ -331,6 +341,12 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowCloudAi = fa
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {image && showEditor && (
+        <div className="mt-6">
+          <TextOverlayEditor src={image} onNotify={onNotify} />
         </div>
       )}
     </div>
