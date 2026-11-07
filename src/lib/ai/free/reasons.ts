@@ -12,6 +12,8 @@ const REASONS: Record<string, string> = {
   'invented-setting': 'a IA inventou um cenário, então a reescrita foi descartada',
   disabled: 'IA desligada no servidor',
   'unsupported-image': 'formato de imagem não suportado pela IA',
+  'image-too-large': 'imagem grande demais para a IA gratuita',
+  'empty-answer': 'a IA respondeu vazio',
   'prompt-length': 'prompt curto ou longo demais para a IA',
 };
 

@@ -3032,6 +3032,10 @@ console.log('\n40. Testando IA gratuita (Workers AI simulado): limites, privacid
   assert.ok(r1.ok && r2.ok && !r3.ok && r3.reason === 'throttled', 'Throttle por minuto');
   assert.equal(calls.length, 2, 'Pedido barrado não chega ao modelo');
   assert.equal(calls[0].inputs.max_tokens, 100, 'max_tokens sempre enviado');
+  // Oversized image (public API called directly): refused before any reservation or call.
+  const callsBeforeHuge = calls.length;
+  const huge = await wai.askImage('data:image/jpeg;base64,' + 'A'.repeat(wai.MAX_IMAGE_DATA_URL_CHARS), 'q');
+  assert.ok(!huge.ok && huge.reason === 'image-too-large' && calls.length === callsBeforeHuge, 'Imagem enorme não vai para a IA');
   // Daily budget: blocks before calling; never above the free allocation even if configured higher.
   process.env.FREE_AI_MAX_REQUESTS_PER_MINUTE = '100';
   process.env.FREE_AI_DAILY_NEURONS = '50000';

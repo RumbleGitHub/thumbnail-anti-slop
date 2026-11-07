@@ -217,7 +217,15 @@ type ChatOut = { response?: string | null; choices?: { message?: { content?: str
 const chatText = (d: ChatOut | null | undefined) => d?.choices?.[0]?.message?.content ?? d?.response ?? d?.result?.response;
 
 /** One image + one question (chat format, image as data URI; remote URLs are rejected by Workers AI). */
+/**
+ * Largest image data URL sent to the vision model. The browser sends 768px JPEGs (~50-250 KB);
+ * the public API could be called directly with much larger images, whose Neuron cost would exceed
+ * the per-call reservation. Over the cap = no call (the route falls back to local results).
+ */
+export const MAX_IMAGE_DATA_URL_CHARS = 1_500_000;
+
 export async function askImage(imageDataUrl: string, question: string, maxOutputTokens = 400) {
+  if (imageDataUrl.length > MAX_IMAGE_DATA_URL_CHARS) return { ok: false, reason: 'image-too-large' } as const;
   const res = await runWorkersAi<ChatOut>(
     visionModel(),
     {

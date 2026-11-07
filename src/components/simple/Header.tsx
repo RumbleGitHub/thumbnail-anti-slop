@@ -18,7 +18,11 @@ interface HeaderProps {
 
 function cloudAiExplanation(paidProvider: 'openai' | 'gemini' | null): string {
   const where = paidProvider === 'openai' ? 'à OpenAI' : paidProvider === 'gemini' ? 'ao Google Gemini' : 'à Cloudflare Workers AI (Llama 4 Scout), que não guarda nem treina com elas';
-  return `IA na nuvem (desligada por padrão). Ligada: a thumbnail em ANALISAR, as referências de produto, cenário e imagem-alvo em CRIAR e o texto em MELHORAR vão ${where}. Essas imagens podem conter rostos. Fotos marcadas como Pessoa nunca são enviadas a modelos gratuitos. Desligada: nenhuma imagem vai para IA; ANALISAR roda só no navegador.`;
+  const refs = paidProvider
+    ? 'as referências em CRIAR (inclusive as marcadas como Pessoa)'
+    : 'as referências de produto, cenário e imagem-alvo em CRIAR';
+  const pessoa = paidProvider ? '' : ' Fotos marcadas como Pessoa nunca são enviadas a modelos gratuitos.';
+  return `IA na nuvem (desligada por padrão). Ligada: a thumbnail em ANALISAR, ${refs} e o texto em MELHORAR vão ${where}. Qualquer uma dessas imagens pode conter rostos.${pessoa} Desligada: nenhuma imagem vai para IA; ANALISAR roda só no navegador.`;
 }
 
 const MODES: { id: Mode; label: string; shortLabel: string }[] = [

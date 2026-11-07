@@ -46,8 +46,11 @@ export default function Home() {
       // Storage blocked: keep the choice for this session only.
     }
     // The header tooltip is not visible on touch screens: say what changes, every time.
+    // Pessoa photos are withheld only from free models; an owner-paid provider receives them.
     handleNotify(next
-      ? 'IA na nuvem ligada: thumbnails e referências (exceto fotos de rosto marcadas como Pessoa) vão para a IA. Podem conter rostos.'
+      ? paidProvider
+        ? 'IA na nuvem ligada: thumbnails e referências, inclusive fotos marcadas como Pessoa, vão para a IA configurada.'
+        : 'IA na nuvem ligada: thumbnails e referências (exceto as marcadas como Pessoa) vão para a IA. Qualquer imagem pode conter rostos.'
       : 'IA na nuvem desligada: nenhuma imagem vai para IA.');
   };
 
