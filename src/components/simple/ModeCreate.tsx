@@ -84,7 +84,6 @@ const ROLE_MICROCOPY: Record<SimpleReferenceRole, string> = {
 const TEXT_TREATMENTS: { id: TextTreatment; label: string }[] = [
   { id: 'AUTO', label: 'Automático' },
   { id: 'USAR_REFERENCIA', label: 'Usar referência' },
-  { id: 'CAMADA_REAL', label: 'Camada depois' },
   { id: 'SEM_TEXTO', label: 'Sem texto' }
 ];
 
@@ -683,13 +682,6 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowCloudAi = fal
                   />
                 </div>
               </div>
-            )}
-
-            {textTreatment !== 'SEM_TEXTO' && (
-              <p className="flex items-start gap-2 text-xs text-zinc-500">
-                <Info className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                Para máxima fidelidade tipográfica, gere a imagem sem texto e aplique a fonte depois no editor.
-              </p>
             )}
 
             <div className="flex flex-col gap-3 border-t border-zinc-800/70 pt-4 sm:flex-row sm:items-center sm:justify-between">

@@ -238,7 +238,7 @@ export function resolveSceneDescription(
   const ideaLower = idea.toLowerCase();
   const missing = extractTitleNames(title).filter(name => !ideaLower.includes(name.toLowerCase()));
   if (missing.length === 0) return idea;
-  return `${idea.replace(/[.!\s]+$/, '')} (featuring ${missing.join(' and ')}, as named in the video title)`;
+  return `${idea.replace(/[.!\s]+$/, '')} (featuring ${missing.join(' and ')})`;
 }
 
 // Translates vague buzzwords into concrete visual decisions (Rule 10)
@@ -1738,7 +1738,7 @@ export function buildMidjourneyPrompt({
       : '';
     if (chooseTypographyStrategy({ text: exactText, treatment: input.textTreatment }).strategy === 'IN_IMAGE') {
       const mjBrief = typographyBrief({ text: exactText, idea: input.ideaDescription, title: input.videoTitle, hasPerson: (input.references || []).some(r => r.role === 'PESSOA'), hasProduct: (input.references || []).some(r => r.role === 'PRODUTO') });
-      visualText += `, with the words "${exactText}" written${where ? where : ''} as ${mjBrief.shortPhrase}, no other text`;
+      visualText += `. Lettering: with the words "${exactText}" written exactly as ${mjBrief.shortPhrase}${where ? `, placed${where}` : ', placed in clean negative space, clear of the main subject'}. Keep the existing scene, background and lighting unchanged. No other text`;
     } else {
       // Default: Midjourney does not draw the headline; a real typography layer is added afterwards.
       visualText += `, clean empty space${where || ' on the right side'} for a real typography layer added later with the exact text "${exactText}", keep the existing scene, background and lighting, no text, no letters, no pseudo-text in the image`;
@@ -1799,7 +1799,7 @@ export function buildModelNotes(input: CreateThumbnailInput, subject?: NewSceneS
     notes.push(`Niji 7 não tem o Edit Model (só V8.1/V8.2). Adicione ${refs.map(r => r.name).join(', ')} como Image Prompt: servem de inspiração, sem garantia de manter rosto ou produto. Para fidelidade, use Midjourney V8.2.`);
   }
   if (model.startsWith('MIDJOURNEY') && exactText) {
-    notes.push(`O texto "${exactText}" vai entre aspas duplas, que é como o Midjourney tenta escrever. Funciona melhor com palavras curtas em alfabeto latino; acentos e "Ç/Ã" podem sair errados. Confira o resultado ou aplique o texto depois no editor.`);
+    notes.push(`O texto "${exactText}" vai entre aspas duplas, que é como o Midjourney tenta escrever. Funciona melhor com palavras curtas em alfabeto latino; acentos e "Ç/Ã" podem sair errados. Confira o resultado ou aplique o texto depois num editor de imagem.`);
   }
   if (subject?.coverTitles?.length && subject.productRefs.length === 0) {
     notes.push(`Sem foto das capas, o gerador pode desenhar uma versão aproximada de ${subject.coverTitles.join(' e ')}. Para capas autênticas, adicione fotos das capas como referência de Produto.`);

@@ -14,18 +14,26 @@ const SENTENCE = /(?<=[.!?])\s+/;
  * prompt. The AVOID / NEGATIVE lists are not lettering instructions and are excluded.
  */
 export function typographySentences(prompt) {
-  const lines = (prompt || '').split(/\n+/).map(l => l.trim()).filter(Boolean);
+  // An adapter may put the directive on the line after its TYPOGRAPHY label: read the pair as one line.
+  const lines = (prompt || '').replace(/TYPOGRAPHY:\s*\n/g, 'TYPOGRAPHY: ').split(/\n+/).map(l => l.trim()).filter(Boolean);
   const typo = lines.filter(l => /^TYPOGRAPHY:/.test(l)).map(l => l.replace(/^TYPOGRAPHY:\s*/, ''));
   if (typo.length) {
     // Every sentence of the TYPOGRAPHY block is part of the lettering instruction.
     return typo.flatMap(line => line.split(SENTENCE)).map(s => s.trim()).filter(Boolean);
   }
-  const LETTERING = /\b(letter|lettering|typeface|display|headline|typograph|outline|glyph|font|with the words)/i;
-  return lines
+  const sentences = lines
     .filter(l => !/^(NEGATIVE|AVOID|STRICTLY|PRESERVATION)/.test(l))
     .flatMap(line => line.split(SENTENCE))
     .map(s => s.trim())
-    .filter(s => s && (s.match(/,/g) || []).length < 6 && LETTERING.test(s));
+    .filter(Boolean);
+  const start = sentences.findIndex(s => /^Render the headline|with the words "/.test(s));
+  if (start < 0) return [];
+  const block = [];
+  for (let i = start; i < sentences.length && block.length < 6; i++) {
+    block.push(sentences[i]);
+    if (/as they are|unchanged|no other text/i.test(sentences[i])) break;
+  }
+  return block;
 }
 
 function wordsIn(text) {
@@ -36,7 +44,7 @@ function wordsIn(text) {
 const CATEGORIES = {
   construction: /(display face|display typeface|geometric sans|condensed display|letters? (?:drawn|constructed)|glyph|proportions)/i,
   size: /(large|dominant|very large|compact lines|two lines|medium-large|readable at (?:a glance|phone))/i,
-  placement: /(clear of the face|clear of the product|negative space|calm area|away from)/i,
+  placement: /(clear of the|cleaner side|open area|open space|negative space|calm area|away from)/i,
   colour: /(accent colour|one tone|high[- ]contrast|warm|value contrast|colour)/i,
   effects: /(outline|shadow|glow|bevel|controlled edge|no outline|no glow|edge)/i,
 };

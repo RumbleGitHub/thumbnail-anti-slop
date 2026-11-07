@@ -79,8 +79,8 @@ const SIZE: Record<'short' | 'medium' | 'long', string> = {
 };
 
 const EFFECTS: Record<TypoGenre, string> = {
-  gaming: 'One strong accent colour; an even outline only where it separates the letters from a busy background, and no glow.',
-  tech: 'One high-contrast tone, with no outline and no glow.',
+  gaming: 'One strong accent colour, a bold, even outline that keeps the letters readable over a busy background, and a firm shadow for depth; no bevel or chrome, and a glow only if the scene itself is neon.',
+  tech: 'One high-contrast tone with a crisp edge or a small shadow for separation; no bevel and no glow.',
   opinion: 'Maximum value contrast against the background, with at most one restrained edge or a tight soft shadow.',
   food: 'A warm, high-contrast tone, with a tight soft shadow only if the letters need separation.',
   general: 'High contrast, with no outline or shadow unless it helps reading.',
@@ -93,7 +93,7 @@ function placementOf(ctx: TypographyContext, genre: TypoGenre, length: 'short' |
   if (length === 'long') return 'Set it along the lower third, clear of the main subject.';
   switch (genre) {
     case 'gaming': return 'Place it in the open area of the frame, clear of the main subject silhouette.';
-    case 'tech': return 'Place it on the cleaner side of the frame, clear of the device.';
+    case 'tech': return 'Place it on the cleaner side of the frame, clear of the products.';
     case 'opinion': return 'Place it over the flattest area of the background, clear of the subject.';
     case 'food': return 'Place it in the empty part of the frame, away from the dish.';
     default: return 'Keep it in clean negative space, not over the main subject.';
@@ -123,7 +123,7 @@ export function typographyBrief(ctx: TypographyContext): TypographyBrief {
   const construction = `${LETTERS[genre]}, set ${SIZE[length]}.`;
   const instruction = [wording, construction, placementOf(ctx, genre, length), EFFECTS[genre], 'Change only the lettering; keep the background, scene, lighting, face, product and logos as they are.'].join(' ');
 
-  const shortPhrase = `one cohesive display typeface, ${length === 'short' ? 'very large lettering' : 'large lettering'}, ${genre === 'tech' ? 'clean geometric sans, no outline' : genre === 'opinion' ? 'heavy condensed caps, high contrast' : genre === 'food' ? 'warm bold display' : 'controlled outline, one accent colour'}, readable at phone size`;
+  const shortPhrase = `one cohesive display typeface, ${length === 'short' ? 'very large lettering' : 'large lettering'}, ${genre === 'tech' ? 'clean geometric sans, one high-contrast tone' : genre === 'opinion' ? 'heavy condensed caps, high contrast' : genre === 'food' ? 'warm bold display' : 'controlled outline, one accent colour'}, readable at phone size`;
 
   const reasons = [REASON_GENRE[genre], length === 'short' ? 'Texto curto: pode ser grande e dominante.' : length === 'medium' ? 'Texto médio: no máximo duas linhas.' : 'Texto longo: duas ou três linhas compactas.'];
   if (accents) reasons.push('Acentos e cedilha: preservados exatamente como digitados.');
@@ -150,9 +150,6 @@ const BAD_TYPOGRAPHY: { re: RegExp; to: string; note: string }[] = [
   { re: /\b(?:ai[- ]looking|fake|artificial)\s+(?:text|letters?|lettering|texto|letras?)\b/gi, to: 'well-constructed lettering', note: 'letras de aparência artificial' },
 ];
 
-/** Effects that, inside a clause about the headline, are effects on the lettering even without a noun. */
-/** Effect words that, inside a clause about the headline, describe the lettering even without a noun. */
-const BARE_EFFECT = /\b(?:3d|3-d|bevel(?:ed)?|extruded|embossed|glow|glowing|chrome|metallic)\b/i;
 /** A run of such words joined by "e", "and", "com", "with" or commas: replaced by one direction. */
 const BARE_RUN = /\b(?:3d|3-d|bevel(?:ed)?|extruded|embossed|glow|glowing|chrome|metallic)\b(?:\s*(?:,|\be\b|\band\b|\bcom\b|\bwith\b)?\s*\b(?:3d|3-d|bevel(?:ed)?|extruded|embossed|glow|glowing|chrome|metallic)\b)*/gi;
 

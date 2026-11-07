@@ -3278,7 +3278,7 @@ console.log('\n43. Testando tipografia: estratégia, camada real, layout do edit
   const fs = await import('node:fs');
   const { chooseTypographyStrategy, extractRequestedText } = await import('../src/lib/typography/strategy.ts');
   const { reviewTypography } = await import('../src/lib/typography/analyze.ts');
-  const { generateSimpleThumbnail, buildTypographyPlan } = await import('../src/lib/simpleEngine/engine.ts');
+  const { generateSimpleThumbnail } = await import('../src/lib/simpleEngine/engine.ts');
 
   // 43.1 Estratégia: o padrão é camada real; texto dentro da imagem só quando pedido.
   assert.equal(chooseTypographyStrategy({ text: 'VALE A PENA?', treatment: 'AUTO' }).strategy, 'IN_IMAGE', 'AUTO: o gerador renderiza o texto (copiar e colar)');
@@ -3362,7 +3362,7 @@ console.log('\n44. Testando ponta a ponta: texto pedido vai para o prompt em tod
   }
   const layerPlan = generateSimpleThumbnail({ ...CYCLE6_BASE, videoTitle: 'x', ideaDescription: 'y', thumbnailText: PT, textTreatment: 'CAMADA_REAL', targetModel: 'GERAL' }).typographyPlan;
   assert.match(layerPlan, /adicione o texto exato em um editor de imagem/, 'Caminho real para concluir a imagem');
-  console.log('  ✓ TEST 44.2: Camada depois reserva espaço e mostra o caminho para concluir (ANALISAR > editor).');
+  console.log('  ✓ TEST 44.2: Camada depois reserva espaço e indica o caminho para concluir no editor de imagem.');
 
   // 44.3 Sem texto: nenhuma sobreposição, nenhum texto inventado.
   for (const targetModel of ALL_MODELS) {

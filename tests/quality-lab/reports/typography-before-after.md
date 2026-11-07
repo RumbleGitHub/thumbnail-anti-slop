@@ -1,18 +1,18 @@
 # Typography before/after
 
-Engine before: `..\..\..\..\..\ADMINI~1\AppData\Local\Temp\claude\b80e94146e2850c7\3b95f7f1-6821-4949-94b7-3086009ea105\scratchpad\base-head2\src\lib\simpleEngine\engine.ts`. Engine after: the current `src/lib/simpleEngine/engine.ts`.
+Engine before: `..\..\..\..\..\ADMINI~1\AppData\Local\Temp\claude\b80e94146e2850c7\3b95f7f1-6821-4949-94b7-3086009ea105\scratchpad\base-4ccae35\src\lib\simpleEngine\engine.ts`. Engine after: the current `src/lib/simpleEngine/engine.ts`.
 Deterministic: the prompts are generated, not drawn. The judge reads the lettering instructions (see `typography-judge.mjs`).
 
 | Case | Before | After | Failed checks (before) | Failed checks (after) |
 |---|---|---|---|---|
-| 21_typography_gta_stylized_title | 56% | 100% | render-instruction, lettering-coherent, section-length, scene-preserved | — |
-| 22_typography_tech_short | 56% | 100% | render-instruction, lettering-coherent, section-length, scene-preserved | — |
-| 23_typography_opinion_pt | 56% | 100% | render-instruction, lettering-coherent, section-length, scene-preserved | — |
-| 24_typography_comparison | 56% | 100% | render-instruction, lettering-coherent, section-length, scene-preserved | — |
-| 25_typography_accents_cedilha | 56% | 100% | render-instruction, lettering-coherent, section-length, scene-preserved | — |
-| 26_typography_overloaded_improve | 60% | 100% | render-instruction, lettering-coherent, scene-preserved, no-/3D bevel|chrome letters | — |
+| 21_typography_gta_stylized_title | 56% | 100% | render-instruction, lettering-coherent, genre-fit, scene-preserved | — |
+| 22_typography_tech_short | 56% | 100% | render-instruction, lettering-coherent, genre-fit, scene-preserved | — |
+| 23_typography_opinion_pt | 67% | 100% | render-instruction, lettering-coherent, scene-preserved | — |
+| 24_typography_comparison | 56% | 100% | render-instruction, lettering-coherent, genre-fit, scene-preserved | — |
+| 25_typography_accents_cedilha | 56% | 100% | render-instruction, lettering-coherent, genre-fit, scene-preserved | — |
+| 26_typography_overloaded_improve | 40% | 100% | render-instruction, lettering-coherent, concrete-choices, genre-fit, scene-preserved, no-/3D bevel|chrome letters | — |
 | 27_typography_no_text | 100% | 100% | — | — |
-| 28_typography_game_logo_preserved | 60% | 100% | render-instruction, lettering-coherent, section-length, scene-preserved | — |
+| 28_typography_game_logo_preserved | 60% | 100% | render-instruction, lettering-coherent, genre-fit, scene-preserved | — |
 
 Boilerplate across the 8 cases after the change (sentences in 4 or more cases): 7x "Change only the lettering; keep the background, scene, lighting, face, product and logos a…".
 
@@ -22,11 +22,11 @@ Boilerplate across the 8 cases after the change (sentences in 4 or more cases): 
 
 **Before (lettering):**
 
-> The only visible text must read exactly: "SAN ANDREAS". Render this headline exactly as written: every letter, accent, capital and punctuation mark, no translation, no extra words, no other text. Use one coherent display typeface family with consistent glyph shapes, even stroke weight and baseline. Restrained outline and shadow: at most one clean edge, no glow, no bevel, no 3D extrusion. Strong contrast, readable at 120px phone size. No unnecessary mixing of unrelated lettering styles; keep an expressive gaming look only while it stays clean and legible. Place it on a calm area, never over faces, hands or the main product. Typographic style: simple bold condensed sans-serif with high contrast and immediate readability at mobile thumbnail size. Hierarchy: prioritize this single short message as secondary to the protagonist subject, never competing for focal dominance.
+> The only visible text must read exactly: "SAN ANDREAS". No extra words. No pseudo-text. No invented letters. Leave clean negative space on the right side for later typography. Do not generate random letters, words, logos, symbols, pseudo-text or decorative glyphs inside the image. Typographic style: simple bold condensed sans-serif with high contrast and immediate readability at mobile thumbnail size. Hierarchy: prioritize this single short message as secondary to the protagonist subject, never competing for focal dominance.
 
 **After (lettering):**
 
-> Render the headline "SAN ANDREAS" exactly as written, every letter and punctuation mark, never translated or shortened. Draw one cohesive, professionally designed display face with consistent proportions and clean curves, set as one large, dominant line readable at a glance. Keep it in clean space away from the face and hands. One strong accent colour; an even outline only where it separates the letters from a busy background, and no glow. Change only the lettering; keep the background, scene, lighting, face, product and logos as they are.
+> Render the headline "SAN ANDREAS" exactly as written, every letter and punctuation mark, never translated or shortened. Draw one cohesive, professionally designed display face with consistent proportions and clean curves, set as one large, dominant line readable at a glance. Keep it in clean space away from the face and hands. One strong accent colour, a bold, even outline that keeps the letters readable over a busy background, and a firm shadow for depth; no bevel or chrome, and a glow only if the scene itself is neon. Change only the lettering; keep the background, scene, lighting, face, product and logos as they are.
 
 Judge after: ✓ exact-wording · ✓ render-instruction · ✓ no-contradiction · ✓ lettering-coherent · ✓ section-length · ✓ concrete-choices · ✓ genre-fit · ✓ scene-preserved · ✓ no-font-promise
 
@@ -36,11 +36,11 @@ Judge after: ✓ exact-wording · ✓ render-instruction · ✓ no-contradiction
 
 **Before (lettering):**
 
-> The only visible text must read exactly: "TESTE COMPLETO". Render this headline exactly as written: every letter, accent, capital and punctuation mark, no translation, no extra words, no other text. Use one coherent display typeface family with consistent glyph shapes, even stroke weight and baseline. Restrained outline and shadow: at most one clean edge, no glow, no bevel, no 3D extrusion. Strong contrast, readable at 120px phone size. No unnecessary mixing of unrelated lettering styles; keep an expressive gaming look only while it stays clean and legible. Place it on a calm area, never over faces, hands or the main product. Typographic style: simple clean heavy grotesk or modern neutral sans-serif with high contrast and legibility. Hierarchy: prioritize this single short message as secondary to the protagonist subject, never competing for focal dominance.
+> The only visible text must read exactly: "TESTE COMPLETO". No extra words. No pseudo-text. No invented letters. Leave clean negative space on the right side for later typography. Do not generate random letters, words, logos, symbols, pseudo-text or decorative glyphs inside the image. Typographic style: simple clean heavy grotesk or modern neutral sans-serif with high contrast and legibility. Hierarchy: prioritize this single short message as secondary to the protagonist subject, never competing for focal dominance.
 
 **After (lettering):**
 
-> Render the headline "TESTE COMPLETO" exactly as written, every letter and punctuation mark, never translated or shortened. Draw one clean geometric sans with even strokes and natural spacing, set as one large, dominant line readable at a glance. Place it on the cleaner side of the frame, clear of the device. One high-contrast tone, with no outline and no glow. Change only the lettering; keep the background, scene, lighting, face, product and logos as they are.
+> Render the headline "TESTE COMPLETO" exactly as written, every letter and punctuation mark, never translated or shortened. Draw one clean geometric sans with even strokes and natural spacing, set as one large, dominant line readable at a glance. Place it on the cleaner side of the frame, clear of the products. One high-contrast tone with a crisp edge or a small shadow for separation; no bevel and no glow. Change only the lettering; keep the background, scene, lighting, face, product and logos as they are.
 
 Judge after: ✓ exact-wording · ✓ render-instruction · ✓ no-contradiction · ✓ lettering-coherent · ✓ section-length · ✓ concrete-choices · ✓ genre-fit · ✓ scene-preserved · ✓ no-font-promise
 
@@ -50,7 +50,7 @@ Judge after: ✓ exact-wording · ✓ render-instruction · ✓ no-contradiction
 
 **Before (lettering):**
 
-> The only visible text must read exactly: "NÃO COMPRE AGORA". Render this headline exactly as written: every letter, accent, capital and punctuation mark, no translation, no extra words, no other text. Use one coherent display typeface family with consistent glyph shapes, even stroke weight and baseline. Restrained outline and shadow: at most one clean edge, no glow, no bevel, no 3D extrusion. Strong contrast, readable at 120px phone size. No unnecessary mixing of unrelated lettering styles; keep an expressive gaming look only while it stays clean and legible. Place it on a calm area, never over faces, hands or the main product. Typographic style: simple clean heavy grotesk or modern neutral sans-serif with high contrast and legibility. Hierarchy: prioritize this single short message as secondary to the protagonist subject, never competing for focal dominance.
+> The only visible text must read exactly: "NÃO COMPRE AGORA". No extra words. No pseudo-text. No invented letters. Leave clean negative space on the right side for later typography. Do not generate random letters, words, logos, symbols, pseudo-text or decorative glyphs inside the image. Typographic style: simple clean heavy grotesk or modern neutral sans-serif with high contrast and legibility. Hierarchy: prioritize this single short message as secondary to the protagonist subject, never competing for focal dominance.
 
 **After (lettering):**
 
@@ -64,11 +64,11 @@ Judge after: ✓ exact-wording · ✓ render-instruction · ✓ no-contradiction
 
 **Before (lettering):**
 
-> The only visible text must read exactly: "QUAL COMPRAR?". Render this headline exactly as written: every letter, accent, capital and punctuation mark, no translation, no extra words, no other text. Use one coherent display typeface family with consistent glyph shapes, even stroke weight and baseline. Restrained outline and shadow: at most one clean edge, no glow, no bevel, no 3D extrusion. Strong contrast, readable at 120px phone size. No unnecessary mixing of unrelated lettering styles; keep an expressive gaming look only while it stays clean and legible. Place it on a calm area, never over faces, hands or the main product. Typographic style: simple clean heavy grotesk or modern neutral sans-serif with high contrast and legibility. Hierarchy: prioritize this single short message as secondary to the protagonist subject, never competing for focal dominance.
+> The only visible text must read exactly: "QUAL COMPRAR?". No extra words. No pseudo-text. No invented letters. Leave clean negative space on the right side for later typography. Do not generate random letters, words, logos, symbols, pseudo-text or decorative glyphs inside the image. Typographic style: simple clean heavy grotesk or modern neutral sans-serif with high contrast and legibility. Hierarchy: prioritize this single short message as secondary to the protagonist subject, never competing for focal dominance.
 
 **After (lettering):**
 
-> Render the headline "QUAL COMPRAR?" exactly as written, every letter and punctuation mark, never translated or shortened. Draw one clean geometric sans with even strokes and natural spacing, set as one large, dominant line readable at a glance. Place it on the cleaner side of the frame, clear of the device. One high-contrast tone, with no outline and no glow. Change only the lettering; keep the background, scene, lighting, face, product and logos as they are.
+> Render the headline "QUAL COMPRAR?" exactly as written, every letter and punctuation mark, never translated or shortened. Draw one clean geometric sans with even strokes and natural spacing, set as one large, dominant line readable at a glance. Place it on the cleaner side of the frame, clear of the products. One high-contrast tone with a crisp edge or a small shadow for separation; no bevel and no glow. Change only the lettering; keep the background, scene, lighting, face, product and logos as they are.
 
 Judge after: ✓ exact-wording · ✓ render-instruction · ✓ no-contradiction · ✓ lettering-coherent · ✓ section-length · ✓ concrete-choices · ✓ genre-fit · ✓ scene-preserved · ✓ no-font-promise
 
@@ -78,7 +78,7 @@ Judge after: ✓ exact-wording · ✓ render-instruction · ✓ no-contradiction
 
 **Before (lettering):**
 
-> The only visible text must read exactly: "O GRANDE ANÚNCIO: É HOJE, ÇA É SÉRIO". Render this headline exactly as written: every letter, accent, capital and punctuation mark, no translation, no extra words, no other text. Use one coherent display typeface family with consistent glyph shapes, even stroke weight and baseline. Restrained outline and shadow: at most one clean edge, no glow, no bevel, no 3D extrusion. Strong contrast, readable at 120px phone size. No unnecessary mixing of unrelated lettering styles; keep an expressive gaming look only while it stays clean and legible. Place it on a calm area, never over faces, hands or the main product. Typographic style: simple bold condensed sans-serif with high contrast and immediate readability at mobile thumbnail size. Hierarchy: prioritize this single short message as secondary to the protagonist subject, never competing for focal dominance.
+> The only visible text must read exactly: "O GRANDE ANÚNCIO: É HOJE, ÇA É SÉRIO". No extra words. No pseudo-text. No invented letters. Leave clean negative space on the right side for later typography. Do not generate random letters, words, logos, symbols, pseudo-text or decorative glyphs inside the image. Typographic style: simple bold condensed sans-serif with high contrast and immediate readability at mobile thumbnail size. Hierarchy: prioritize this single short message as secondary to the protagonist subject, never competing for focal dominance.
 
 **After (lettering):**
 
@@ -92,11 +92,11 @@ Judge after: ✓ exact-wording · ✓ render-instruction · ✓ no-contradiction
 
 **Before (lettering):**
 
-> The only visible text must read exactly: "VALE A PENA". Render this headline exactly as written, with every accent and capital, no other text. Use one coherent display typeface family with consistent glyph shapes, even stroke weight and baseline. Restrained outline and shadow: at most one clean edge, no glow, no bevel, no 3D extrusion. Strong contrast, readable at 120px phone size. No unnecessary mixing of unrelated lettering styles; keep an expressive gaming look only while it stays clean and legible. Place it on a calm area, never over faces, hands or the main product.
+> (none)
 
 **After (lettering):**
 
-> Render the headline "VALE A PENA" exactly as written, every letter and punctuation mark, never translated or shortened. Draw one cohesive, professionally designed display face with consistent proportions and clean curves, set on two lines at most, large and comfortably spaced. Place it in the open area of the frame, clear of the main subject silhouette. One strong accent colour; an even outline only where it separates the letters from a busy background, and no glow. Change only the lettering; keep the background, scene, lighting, face, product and logos as they are.
+> Render the headline "VALE A PENA" exactly as written, every letter and punctuation mark, never translated or shortened. Draw one cohesive, professionally designed display face with consistent proportions and clean curves, set on two lines at most, large and comfortably spaced. Place it in the open area of the frame, clear of the main subject silhouette. One strong accent colour, a bold, even outline that keeps the letters readable over a busy background, and a firm shadow for depth; no bevel or chrome, and a glow only if the scene itself is neon. Change only the lettering; keep the background, scene, lighting, face, product and logos as they are.
 
 Judge after: ✓ exact-wording · ✓ render-instruction · ✓ no-contradiction · ✓ lettering-coherent · ✓ section-length · ✓ concrete-choices · ✓ genre-fit · ✓ scene-preserved · ✓ no-font-promise · ✓ no-/3D bevel|chrome letters
 
@@ -120,11 +120,11 @@ Judge after: ✓ no-invented-title
 
 **Before (lettering):**
 
-> The only visible text must read exactly: "ELDEN RING". Render this headline exactly as written: every letter, accent, capital and punctuation mark, no translation, no extra words, no other text. Use one coherent display typeface family with consistent glyph shapes, even stroke weight and baseline. Restrained outline and shadow: at most one clean edge, no glow, no bevel, no 3D extrusion. Strong contrast, readable at 120px phone size. No unnecessary mixing of unrelated lettering styles; keep an expressive gaming look only while it stays clean and legible. Place it on a calm area, never over faces, hands or the main product. Typographic style: simple bold condensed sans-serif with high contrast and immediate readability at mobile thumbnail size. Hierarchy: prioritize this single short message as secondary to the protagonist subject, never competing for focal dominance.
+> The only visible text must read exactly: "ELDEN RING". No extra words. No pseudo-text. No invented letters. Leave clean negative space on the right side for later typography. Do not generate random letters, words, logos, symbols, pseudo-text or decorative glyphs inside the image. Typographic style: simple bold condensed sans-serif with high contrast and immediate readability at mobile thumbnail size. Hierarchy: prioritize this single short message as secondary to the protagonist subject, never competing for focal dominance.
 
 **After (lettering):**
 
-> Render the headline "ELDEN RING" exactly as written, every letter and punctuation mark, never translated or shortened. Draw one cohesive, professionally designed display face with consistent proportions and clean curves, set as one large, dominant line readable at a glance. Keep it in clean space away from the product and its logo. One strong accent colour; an even outline only where it separates the letters from a busy background, and no glow. Change only the lettering; keep the background, scene, lighting, face, product and logos as they are.
+> Render the headline "ELDEN RING" exactly as written, every letter and punctuation mark, never translated or shortened. Draw one cohesive, professionally designed display face with consistent proportions and clean curves, set as one large, dominant line readable at a glance. Keep it in clean space away from the product and its logo. One strong accent colour, a bold, even outline that keeps the letters readable over a busy background, and a firm shadow for depth; no bevel or chrome, and a glow only if the scene itself is neon. Change only the lettering; keep the background, scene, lighting, face, product and logos as they are.
 
 Judge after: ✓ exact-wording · ✓ render-instruction · ✓ no-contradiction · ✓ lettering-coherent · ✓ section-length · ✓ concrete-choices · ✓ genre-fit · ✓ scene-preserved · ✓ no-font-promise · ✓ logo-preserved
 

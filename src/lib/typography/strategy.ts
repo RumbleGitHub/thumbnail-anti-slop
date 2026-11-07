@@ -3,8 +3,8 @@
  *
  * Thumbnail Anti-Slop is a prompt generator: most users copy the final prompt into an external image
  * generator. So by default (AUTO) a requested headline IS rendered by the generator, with rules that
- * discourage malformed lettering. The real-font text layer is an explicit choice (CAMADA_REAL), because
- * the editor in ANALISAR is the only place that composes real typography onto a finished image.
+ * discourage malformed lettering. A text layer added later is an internal option (CAMADA_REAL) that the
+ * interface does not expose; it leaves a clean space for an external image editor.
  */
 export type TypographyStrategy = 'NONE' | 'IN_IMAGE' | 'REAL_LAYER';
 
@@ -22,7 +22,7 @@ export function chooseTypographyStrategy(input: { text?: string; treatment?: str
   if (input.treatment === 'CAMADA_REAL') {
     return {
       strategy: 'REAL_LAYER',
-      reason: 'Camada depois: o gerador deixa um espaço limpo. Depois, o texto exato entra com fonte real no editor de ANALISAR.'
+      reason: 'Camada depois: o gerador deixa um espaço limpo para o texto exato, que pode ser colocado depois em qualquer editor de imagem.'
     };
   }
   return {
