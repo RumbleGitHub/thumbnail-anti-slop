@@ -43,6 +43,8 @@ import { mergeComplementaryPlan } from './complementaryMerge.ts';
 import { PERSON_KEYWORDS } from './personDetection.ts';
 import { extractTitleNames, extractNamedProducts, extractCoverTitles, mentionsGameCovers } from './productNames.ts';
 import { parseCreatorIdea, midjourneyNoTerms } from './promptLanguage.ts';
+import { chooseTypographyStrategy, extractRequestedText } from '../typography/strategy.ts';
+import { typographyBrief, reviseTypographyRequest } from '../typography/reasoning.ts';
 
 export { extractTitleNames, extractNamedProducts, extractCoverTitles, mentionsGameCovers, parseCreatorIdea };
 
@@ -236,7 +238,7 @@ export function resolveSceneDescription(
   const ideaLower = idea.toLowerCase();
   const missing = extractTitleNames(title).filter(name => !ideaLower.includes(name.toLowerCase()));
   if (missing.length === 0) return idea;
-  return `${idea.replace(/[.!\s]+$/, '')} (featuring ${missing.join(' and ')}, as named in the video title)`;
+  return `${idea.replace(/[.!\s]+$/, '')} (featuring ${missing.join(' and ')})`;
 }
 
 // Translates vague buzzwords into concrete visual decisions (Rule 10)
@@ -1734,7 +1736,13 @@ export function buildMidjourneyPrompt({
     const where = input.reserveSpaceForText && input.reservedSpacePosition
       ? ({ ESQUERDA: ' on the left side', DIREITA: ' on the right side', SUPERIOR: ' at the top', INFERIOR: ' at the bottom' } as const)[input.reservedSpacePosition]
       : '';
-    visualText += `, with the words "${exactText}" written in large bold clean letters${where}, no other text`;
+    if (chooseTypographyStrategy({ text: exactText, treatment: input.textTreatment }).strategy === 'IN_IMAGE') {
+      const mjBrief = typographyBrief({ text: exactText, idea: input.ideaDescription, title: input.videoTitle, hasPerson: (input.references || []).some(r => r.role === 'PESSOA'), hasProduct: (input.references || []).some(r => r.role === 'PRODUTO') });
+      visualText += `. Lettering: with the words "${exactText}" written exactly as ${mjBrief.shortPhrase}${where ? `, placed${where}` : ', placed in clean negative space, clear of the main subject'}. Keep the existing scene, background and lighting unchanged. No other text`;
+    } else {
+      // Default: Midjourney does not draw the headline; a real typography layer is added afterwards.
+      visualText += `, clean empty space${where || ' on the right side'} for a real typography layer added later with the exact text "${exactText}", keep the existing scene, background and lighting, no text, no letters, no pseudo-text in the image`;
+    }
   }
 
   // Creator exclusions ("sem neon") as --no, single words only (Midjourney reads each word separately).
@@ -1791,7 +1799,7 @@ export function buildModelNotes(input: CreateThumbnailInput, subject?: NewSceneS
     notes.push(`Niji 7 não tem o Edit Model (só V8.1/V8.2). Adicione ${refs.map(r => r.name).join(', ')} como Image Prompt: servem de inspiração, sem garantia de manter rosto ou produto. Para fidelidade, use Midjourney V8.2.`);
   }
   if (model.startsWith('MIDJOURNEY') && exactText) {
-    notes.push(`O texto "${exactText}" vai entre aspas duplas, que é como o Midjourney tenta escrever. Funciona melhor com palavras curtas em alfabeto latino; acentos e "Ç/Ã" podem sair errados. Confira o resultado ou aplique o texto depois no editor.`);
+    notes.push(`O texto "${exactText}" vai entre aspas duplas, que é como o Midjourney tenta escrever. Funciona melhor com palavras curtas em alfabeto latino; acentos e "Ç/Ã" podem sair errados. Confira o resultado ou aplique o texto depois num editor de imagem.`);
   }
   if (subject?.coverTitles?.length && subject.productRefs.length === 0) {
     notes.push(`Sem foto das capas, o gerador pode desenhar uma versão aproximada de ${subject.coverTitles.join(' e ')}. Para capas autênticas, adicione fotos das capas como referência de Produto.`);
@@ -2021,7 +2029,7 @@ export function buildPromptFromScenePlan(
     const posStr = reservedSpacePosition === 'ESQUERDA' ? 'left side' :
       reservedSpacePosition === 'DIREITA' ? 'right side' :
       reservedSpacePosition === 'SUPERIOR' ? 'upper top area' : 'lower bottom area';
-    typographyDirective = `Reserve clean, uncluttered negative space on the ${posStr} of the composition specifically for post-production typography ("${thumbnailText.trim()}"). Do not bake distorted AI typography directly into the pixels.`;
+    typographyDirective = typographyDirectiveFor(thumbnailText.trim(), textTreatment, posStr, { idea: input.ideaDescription, title: input.videoTitle, references: input.references });
   }
 
   if (plan.taskType === 'IDENTITY_TRANSFER') {
@@ -2195,7 +2203,8 @@ ${CORE_ANTI_SLOP_AVOID.slice(0, 25).join(', ')}.`;
     fontName,
     reservedSpacePosition,
     stylePreset,
-    textTreatment
+    textTreatment,
+    typographyCtxOf(input)
   );
 
   return {
@@ -2598,6 +2607,41 @@ export function withIdeaTextRequest(input: CreateThumbnailInput): CreateThumbnai
   return text ? { ...input, thumbnailText: text } : input;
 }
 
+/**
+ * Typography line handed to every model adapter. It must agree with the TYPOGRAPHY line of the prompt:
+ * default = the headline is NOT drawn by the image model (real layer added later); an explicit in-image
+ * request keeps the literal rule.
+ */
+/** Typography context of a request: the idea, the title and which reference roles are present. */
+function typographyCtxOf(input: { ideaDescription?: string; videoTitle?: string; references?: { role: string }[] }) {
+  const refs = input.references || [];
+  return {
+    idea: input.ideaDescription,
+    title: input.videoTitle,
+    hasPerson: refs.some(r => r.role === 'PESSOA'),
+    hasProduct: refs.some(r => r.role === 'PRODUTO'),
+  };
+}
+
+export function typographyDirectiveFor(
+  exact: string,
+  treatment: TextTreatment | undefined,
+  posStr: string,
+  ctx: { idea?: string; title?: string; references?: { role: string }[] } = {}
+): string {
+  if (chooseTypographyStrategy({ text: exact, treatment }).strategy === 'IN_IMAGE') {
+    const refs = ctx.references || [];
+    return typographyBrief({
+      text: exact,
+      idea: ctx.idea,
+      title: ctx.title,
+      hasPerson: refs.some(r => r.role === 'PESSOA'),
+      hasProduct: refs.some(r => r.role === 'PRODUTO'),
+    }).instruction;
+  }
+  return `Do not draw the headline text "${exact}" in the image. Reserve clean, uncluttered negative space on the ${posStr} of the composition for a real typography layer added afterwards with the exact text. Keep the scene, background, lighting and every existing logo untouched. Do not bake distorted AI typography directly into the pixels.`;
+}
+
 // Generate complete photographic prompt tailored for specific target models
 export function generateSimpleThumbnail(
   rawInput: CreateThumbnailInput,
@@ -2845,30 +2889,24 @@ ENVIRONMENT & OPTICS: ${contextEn}. ${styleTreatment}${depthOfField}, tangible m
   } else {
     // Regra 14: Texto exato - nunca traduzir, reescrever, corrigir ou adicionar palavras
     const exactText = thumbnailText.trim();
-    let typeLine = `The only visible text must read exactly: "${exactText}". No extra words. No pseudo-text. No invented letters.`;
+    const strategy = chooseTypographyStrategy({ text: exactText, treatment: textTreatment }).strategy;
+    const brief = typographyBrief({ text: exactText, idea: cleanIdea, title: videoTitle, hasProduct: hasProductRef, hasPerson: hasPersonRef });
+    let typeLine: string;
 
-    if (textTreatment === 'RENDER_IN_IMAGE') {
-      typeLine += ` Render with high contrast on a calm area, never placing text over faces, hands, or main product. Strictly use only the exact text "${exactText}", zero additional words, zero pseudo-text, zero invented decorative symbols.`;
+    if (strategy === 'REAL_LAYER') {
+      // Explicit "Camada depois": the generator must NOT draw the headline; the space is kept clean.
+      typeLine = `Do not draw the headline text "${exactText}" and do not generate any letters, words or pseudo-text in the image. Leave a clean, calm area on the ${chosenPos} for a real typography layer that will be added afterwards with the exact spelling, accents and capitalization. Keep the scene, background, lighting and every existing logo untouched; only keep that area free of clutter.`;
     } else {
-      typeLine += ` Leave clean negative space on the ${chosenPos} for later typography. Do not generate random letters, words, logos, symbols, pseudo-text or decorative glyphs inside the image.`;
-    }
-
-    // Regra 18 & 20: Fonte real vs características tipográficas
-    if (fontName && fontName.trim().length > 0) {
-      typeLine += ` Typographic style: render in authentic ${fontName.trim()} typeface characteristics (clean letterforms, consistent baseline, bold weight).`;
-    } else if (textTreatment === 'USAR_REFERENCIA' && typeRefs.length > 0) {
-      typeLine += ` Typographic personality, weight, kerning, and treatment must strictly match the TYPOGRAPHY reference.`;
-    } else {
-      // Regra 13: AUTO - clean bold sans-serif, condensed ou heavy grotesk de acordo com o contexto
-      if (isTech) {
-        typeLine += ` Typographic style: simple clean heavy grotesk or modern neutral sans-serif with high contrast and legibility.`;
-      } else {
-        typeLine += ` Typographic style: simple bold condensed sans-serif with high contrast and immediate readability at mobile thumbnail size.`;
+      // Default: the generator renders the headline. The instruction is decided for this case (genre, length,
+      // relation to the subject, colour and effects), see src/lib/typography/reasoning.ts.
+      typeLine = brief.instruction;
+      if (fontName && fontName.trim().length > 0) {
+        typeLine += ` Typographic direction: ${fontName.trim()} style, as a guide only; the generator cannot guarantee that exact typeface.`;
+      } else if (textTreatment === 'USAR_REFERENCIA' && typeRefs.length > 0) {
+        typeLine += ' Match the TYPOGRAPHY reference for personality, weight and treatment.';
       }
     }
 
-    // Regra 21 & 22: Hierarquia tipográfica - mensagem única, não concorrer com o assunto
-    typeLine += ` Hierarchy: prioritize this single short message as secondary to the protagonist subject, never competing for focal dominance.`;
     promptBody += `\nTYPOGRAPHY: ${typeLine}`;
   }
 
@@ -2896,7 +2934,7 @@ ENVIRONMENT & OPTICS: ${contextEn}. ${styleTreatment}${depthOfField}, tangible m
     const posStr = reservedSpacePosition === 'ESQUERDA' ? 'left side' :
       reservedSpacePosition === 'DIREITA' ? 'right side' :
       reservedSpacePosition === 'SUPERIOR' ? 'upper top area' : 'lower bottom area';
-    typographyDirective = `Reserve clean, uncluttered negative space on the ${posStr} of the composition specifically for post-production typography ("${thumbnailText.trim()}"). Do not bake distorted AI typography directly into the pixels.`;
+    typographyDirective = typographyDirectiveFor(thumbnailText.trim(), textTreatment, posStr, { idea: input.ideaDescription, title: input.videoTitle, references: input.references });
   }
 
   // Same lock decisions as the GERAL PRESERVATION LOCKS above, handed to every model adapter.
@@ -2936,7 +2974,8 @@ ENVIRONMENT & OPTICS: ${contextEn}. ${styleTreatment}${depthOfField}, tangible m
     fontName,
     reservedSpacePosition,
     stylePreset,
-    textTreatment
+    textTreatment,
+    typographyCtxOf(input)
   );
 
   return {
@@ -2993,7 +3032,8 @@ export function buildTypographyPlan(
   fontName?: string,
   position: ReservedSpacePosition = 'DIREITA',
   stylePreset?: 'Natural' | 'Cinematográfico' | 'Editorial' | 'Fotojornalismo',
-  textTreatment?: TextTreatment
+  textTreatment?: TextTreatment,
+  ctx: { idea?: string; title?: string; hasProduct?: boolean; hasPerson?: boolean } = {}
 ): string {
   if (textTreatment === 'SEM_TEXTO' || !thumbnailText || !thumbnailText.trim()) {
     return 'Nenhuma tipografia necessária. A imagem e o título já comunicam a ideia.';
@@ -3009,41 +3049,37 @@ export function buildTypographyPlan(
   const clean = thumbnailText.trim();
   const wordCount = clean.split(/\s+/).filter(Boolean).length;
   const lineCount = wordCount <= 2 ? '1 a 2 linhas' : wordCount <= 4 ? 'duas linhas no máximo' : 'duas a três linhas compactas';
+  const strategy = chooseTypographyStrategy({ text: clean, treatment: textTreatment }).strategy;
 
-  if (fontName && fontName.trim().length > 0) {
-    const fName = fontName.trim();
-    return `Tipografia com características da família ${fName} (peso bold, caixa alta, ${lineCount}, alto contraste), aplicada posteriormente sobre o espaço negativo ${posPt}.\n\nSugestão: ${fName}.`;
+  if (strategy === 'IN_IMAGE') {
+    // The image renders the headline: the plan explains the decisions taken for this case.
+    const brief = typographyBrief({ text: clean, idea: ctx.idea, title: ctx.title, hasProduct: ctx.hasProduct, hasPerson: ctx.hasPerson });
+    const lines = [
+      `Estratégia: a imagem renderiza o texto exato "${clean}" (ortografia, acentos e maiúsculas preservados), em área limpa ${posPt}. Ao colar o prompt no gerador, confira as letras de perto; se saírem tortas, gere de novo ou escolha "Camada depois".`,
+      ...brief.reasons
+    ];
+    if (fontName && fontName.trim().length > 0) {
+      lines.push(`Direção de fonte: ${fontName.trim()} (guia de estilo; o gerador não garante essa fonte exata).`);
+    }
+    return lines.join('\n');
   }
 
-  // Primeiro determina a FUNÇÃO VISUAL da tipografia:
-  let visualDecision = '';
-  let fontSuggestions = '';
-
-  if (stylePreset === 'Editorial' || stylePreset === 'Fotojornalismo') {
-    // GROTESCA EDITORIAL: para aparência mais natural, documental ou editorial
-    visualDecision = `Grotesca editorial, peso equilibrado e elegante, caixa alta, ${lineCount}, alto contraste sem agressividade visual, aplicada posteriormente sobre o espaço negativo ${posPt}.`;
-    fontSuggestions = 'Roboto Condensed ou Oswald';
-  } else if (wordCount >= 4 || position === 'SUPERIOR' || position === 'INFERIOR') {
-    // SANS NEUTRA: quando a imagem deve dominar ou há mais palavras
-    visualDecision = `Sans-serif neutra de peso médio/bold, ${lineCount}, servindo como apoio secundário para que a composição visual da imagem domine, aplicada posteriormente sobre o espaço negativo ${posPt}.`;
-    fontSuggestions = 'Inter ou Barlow Condensed';
-  } else if (isTech) {
-    // SANS GEOMÉTRICA PESADA: para tecnologia limpa e precisão
-    visualDecision = `Sans geométrica pesada, linhas limpas e estruturadas, caixa alta, ${lineCount}, alta legibilidade em telas compactas, aplicada posteriormente sobre o espaço negativo ${posPt}.`;
-    fontSuggestions = 'Archivo Black ou Inter';
-  } else {
-    // CONDENSADA PESADA: para poucas palavras com grande presença
-    visualDecision = `Sans-serif condensada pesada, caixa alta, ${lineCount}, alto contraste com a cena, aplicada posteriormente sobre o espaço negativo ${posPt}.`;
-    fontSuggestions = 'Anton ou Archivo Black';
-  }
-
-  return `${visualDecision}\n\nSugestões: ${fontSuggestions}.`;
+  // Camada depois: the generator leaves the space clean and the text is set afterwards in an image editor.
+  let suggestion: string;
+  if (fontName && fontName.trim().length > 0) suggestion = fontName.trim();
+  else if (stylePreset === 'Editorial' || stylePreset === 'Fotojornalismo') suggestion = 'Oswald';
+  else if (wordCount >= 4 || position === 'SUPERIOR' || position === 'INFERIOR') suggestion = 'Barlow Condensed';
+  else if (isTech) suggestion = 'Archivo Black';
+  else suggestion = 'Anton ou Bebas Neue';
+  return `Estratégia: camada de texto real, depois da imagem. Texto exato: "${clean}" (ortografia, acentos e maiúsculas preservados). A IA deixa o espaço ${posPt} limpo. Depois de gerar a imagem, adicione o texto exato em um editor de imagem, com a fonte sugerida: ${suggestion}. ${lineCount}, peso bold, alto contraste.`;
 }
 
 // Slop remover & prompt purifier (Understands intent first, strips cliches, reconstructs grounded prompt)
 export function improvePrompt(input: ImprovePromptInput): ImprovePromptResult {
-  const raw = input.rawPrompt.trim();
-  const changes: string[] = [];
+  // Typography instructions that push the generator toward fake lettering are replaced first (MELHORAR).
+  const typo = reviseTypographyRequest(input.rawPrompt.trim());
+  const raw = typo.text;
+  const changes: string[] = typo.changes.map(c => `Tipografia: ${c}.`);
   const normModel = normalizeTargetModel(input.targetModel);
   const cfg = TARGET_MODEL_CONFIGS[normModel];
 
@@ -3181,7 +3217,12 @@ OPTICAL DEPTH: Balanced photographic perspective with 35mm lens, preserving auth
 TEXTURES: Authentic tactile materials, true matte finishes, natural skin texture, physical fabric and surfaces.
 STRICTLY AVOID: ${CORE_ANTI_SLOP_AVOID.slice(0, 18).join(', ')}.`;
 
-  let finalPrompt = baseNeutralPrompt;
+  // Visible text the creator asked for must reach the generator as a render instruction, never dropped.
+  const requestedText = extractRequestedText(raw);
+  let finalPrompt = requestedText
+    ? `${baseNeutralPrompt}
+TYPOGRAPHY: ${typographyDirectiveFor(requestedText, 'AUTO', 'right side', { idea: raw })}`
+    : baseNeutralPrompt;
 
   if (normModel !== 'GERAL' && cfg && cfg.promptStyle !== 'neutral') {
     const extraNotes: string[] = [];
@@ -3197,6 +3238,8 @@ STRICTLY AVOID: ${CORE_ANTI_SLOP_AVOID.slice(0, 18).join(', ')}.`;
     const createInput: CreateThumbnailInput = {
       videoTitle: cleanSubject || subjectDescription,
       ideaDescription: subjectDescription,
+      thumbnailText: requestedText || undefined,
+      textTreatment: requestedText ? 'AUTO' : undefined,
       references: [],
       targetModel: normModel,
       aspectRatio: '16:9',
@@ -3207,7 +3250,9 @@ STRICTLY AVOID: ${CORE_ANTI_SLOP_AVOID.slice(0, 18).join(', ')}.`;
       extraInstructions: extraNotes.length > 0 ? extraNotes.join(' ') : undefined
     };
     const scenePlan = buildScenePlan(createInput);
-    const typographyDirective = 'Reserve clean, uncluttered negative space for post-production typography. Do not bake distorted AI typography directly into the pixels.';
+    const typographyDirective = requestedText
+      ? typographyDirectiveFor(requestedText, 'AUTO', 'right side', { idea: raw })
+      : 'Reserve clean, uncluttered negative space for post-production typography. Do not bake distorted AI typography directly into the pixels.';
     const arParam = '16:9 widescreen format';
 
     finalPrompt = renderPromptForTargetModel({

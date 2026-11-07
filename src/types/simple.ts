@@ -517,7 +517,7 @@ export function getSelectableTargetModels(): TargetModelGroup[] {
   }));
 }
 
-export type TextTreatment = 'AUTO' | 'USAR_REFERENCIA' | 'RENDER_IN_IMAGE' | 'SEM_TEXTO';
+export type TextTreatment = 'AUTO' | 'USAR_REFERENCIA' | 'RENDER_IN_IMAGE' | 'CAMADA_REAL' | 'SEM_TEXTO';
 export type ReservedSpacePosition = 'ESQUERDA' | 'DIREITA' | 'SUPERIOR' | 'INFERIOR';
 
 export type TaskType =

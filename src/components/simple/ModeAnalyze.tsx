@@ -333,6 +333,7 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowCloudAi = fa
           </div>
         </div>
       )}
+
     </div>
   );
 }

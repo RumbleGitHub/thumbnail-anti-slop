@@ -684,13 +684,6 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowCloudAi = fal
               </div>
             )}
 
-            {textTreatment !== 'SEM_TEXTO' && (
-              <p className="flex items-start gap-2 text-xs text-zinc-500">
-                <Info className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                Para máxima fidelidade tipográfica, gere a imagem sem texto e aplique a fonte depois no editor.
-              </p>
-            )}
-
             <div className="flex flex-col gap-3 border-t border-zinc-800/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
               <label className="flex cursor-pointer items-center gap-2.5 text-sm text-zinc-300">
                 <input
