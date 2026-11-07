@@ -399,7 +399,7 @@ console.log('\n14. Testando Ausência de Viés Cinematográfico, Abertura Força
   });
 
   assert.ok(!resMJ.finalPrompt.includes('--v 6'), 'Prompt Midjourney NÃO deve fixar versão volátil como --v 6.1');
-  assert.ok(!resMJ.finalPrompt.includes('--style raw'), 'Prompt Midjourney padrão NÃO deve forçar --style raw');
+  assert.ok(!/--(?:style )?raw\b/.test(resMJ.finalPrompt), 'Prompt Midjourney padrão NÃO deve forçar --style raw');
   assert.ok(resMJ.finalPrompt.includes('--v 8.2'), 'Prompt Midjourney DEVE incluir versão atual --v 8.2');
   assert.ok(resMJ.finalPrompt.includes('--ar 16:9'), 'Prompt Midjourney DEVE incluir proporção --ar 16:9');
 
@@ -416,7 +416,7 @@ console.log('\n14. Testando Ausência de Viés Cinematográfico, Abertura Força
     preserveProduct: false,
     extraInstructions: 'usar --style raw'
   });
-  assert.ok(resMJExplicitRaw.finalPrompt.includes('--style raw'), 'Prompt Midjourney com pedido explícito em extraInstructions deve conter --style raw');
+  assert.ok(resMJExplicitRaw.finalPrompt.includes('--raw'), 'Prompt Midjourney com pedido explícito em extraInstructions deve conter --raw (sintaxe atual da doc oficial)');
   assert.ok(resMJExplicitRaw.finalPrompt.includes('--v 8.2'), 'Prompt Midjourney com pedido explícito deve manter --v 8.2');
 
   // Test Midjourney target model flags: Cinematográfico / Estilizado -> NÃO deve forçar --style raw (Regra 2)
@@ -431,7 +431,7 @@ console.log('\n14. Testando Ausência de Viés Cinematográfico, Abertura Força
     preserveFace: false,
     preserveProduct: false
   });
-  assert.ok(!resMJStylized.finalPrompt.includes('--style raw'), 'Prompt Midjourney cinematográfico/estilizado NÃO deve forçar --style raw');
+  assert.ok(!/--(?:style )?raw\b/.test(resMJStylized.finalPrompt), 'Prompt Midjourney cinematográfico/estilizado NÃO deve forçar --style raw');
   assert.ok(resMJStylized.finalPrompt.includes('--ar 16:9'), 'Prompt Midjourney estilizado DEVE manter proporção --ar 16:9');
   console.log('  ✓ Parâmetros Midjourney validados (--style raw não forçado por padrão; permitido apenas sob pedido explícito).');
 
@@ -1625,7 +1625,7 @@ console.log('\n24. Testando Modernização de Modelos Alvo 2026: Google Nano Ban
   assert.ok(mjPrompt.includes('--v 8.2'), 'Midjourney V8.2 deve conter --v 8.2');
   assert.ok(!mjPrompt.includes('--v 6'), 'Midjourney V8.2 NÃO deve conter --v 6');
   assert.ok(!mjPrompt.includes('--v 7'), 'Midjourney V8.2 NÃO deve conter --v 7');
-  assert.ok(!mjPrompt.includes('--style raw'), 'Midjourney V8.2 padrão NÃO deve conter --style raw');
+  assert.ok(!/--(?:style )?raw\b/.test(mjPrompt), 'Midjourney V8.2 padrão NÃO deve conter --style raw');
   assert.equal(mjV8Result.outputMetadata?.modelId, 'v8.2');
 
   const mjV8WithRaw = generateSimpleThumbnail({
@@ -1633,7 +1633,7 @@ console.log('\n24. Testando Modernização de Modelos Alvo 2026: Google Nano Ban
     targetModel: 'MIDJOURNEY_V8_2',
     extraInstructions: 'usar --style raw'
   });
-  assert.ok(mjV8WithRaw.finalPrompt.includes('--style raw'), 'Midjourney V8.2 com pedido explícito em extraInstructions deve conter --style raw');
+  assert.ok(mjV8WithRaw.finalPrompt.includes('--raw'), 'Midjourney V8.2 com pedido explícito em extraInstructions deve conter --raw (sintaxe atual da doc oficial)');
   assert.ok(mjV8WithRaw.finalPrompt.includes('--v 8.2'), 'Midjourney V8.2 com pedido explícito deve conter --v 8.2');
 
   const mjNijiResult = generateSimpleThumbnail({
@@ -1646,7 +1646,7 @@ console.log('\n24. Testando Modernização de Modelos Alvo 2026: Google Nano Ban
     realismLevel: 'Alto'
   });
   assert.ok(mjNijiResult.finalPrompt.includes('--niji 7'), 'Midjourney Niji 7 deve conter --niji 7');
-  assert.ok(!mjNijiResult.finalPrompt.includes('--style raw'), 'Midjourney Niji 7 NUNCA deve incluir --style raw');
+  assert.ok(!/--(?:style )?raw\b/.test(mjNijiResult.finalPrompt), 'Midjourney Niji 7 NUNCA deve incluir --style raw');
   assert.equal(mjNijiResult.outputMetadata?.modelId, 'niji-7');
   console.log('  ✓ TEST 24.4: Midjourney V8.2 (--v 8.2) e Niji 7 (--niji 7) validados com prompt visual conciso, sem versões obsoletas e sem --style raw por padrão.');
 
@@ -2836,5 +2836,447 @@ console.log('\n35. Testando Spatial Hierarchy Planner sem pessoa inventada...');
   assert.equal(requestIncludesPerson({ videoTitle: 'Review', ideaDescription: 'o teclado', references: [{ id: 'p', name: 'Eu', role: 'PESSOA', url: 'x' }] }), true);
   assert.equal(requestIncludesPerson({ videoTitle: 'Visitei o museu', ideaDescription: 'Fachada do museu ao entardecer', references: [] }), false, '"museu"/"meu" não contém a palavra "eu"');
   console.log('  ✓ TEST 35.2: Com pessoa (texto ou PESSOA) a hierarquia Criador > Objeto continua igual; "museu" não vira pessoa.');
+}
+
+const CYCLE6_BASE = { thumbnailText: '', aspectRatio: '16:9', stylePreset: 'Natural', realismLevel: 'Alto', preserveFace: false, preserveProduct: false, textTreatment: 'AUTO', references: [] };
+const cycle6Ref = (id, role, extra = {}) => ({ id, name: id, url: `https://example.com/${id}.jpg`, role, ...extra });
+
+// 36. Midjourney: referências e texto conforme docs.midjourney.com (V8.2 Edit Model, Niji 7 Image Prompts)
+console.log('\n36. Testando Midjourney conforme a documentação oficial (referências, texto, --raw, --no)...');
+{
+  const { generateSimpleThumbnail } = await import('../src/lib/simpleEngine/engine.ts');
+  const refs = [cycle6Ref('minha-foto', 'PESSOA'), cycle6Ref('headset-pro-x', 'PRODUTO')];
+  const v8 = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: 'MIDJOURNEY_V8_2', videoTitle: 'Unboxing', ideaDescription: 'Eu mostrando o headset na mão', references: refs });
+  // 36.1 No file names (Midjourney cannot read them) and no V7-only parameters.
+  assert.ok(!v8.finalPrompt.includes('minha-foto') && !v8.finalPrompt.includes('headset-pro-x'), 'Prompt MJ não deve conter nomes de arquivo');
+  assert.ok(!/--oref|--ow\b|--cref|--cw\b/.test(v8.finalPrompt), 'V8.2 não usa --oref/--cref (só V7; substituídos pelo Edit Model)');
+  assert.match(v8.finalPrompt, /attached face photo/);
+  assert.match(v8.finalPrompt, /attached product photo/);
+  const notes = (v8.modelNotes || []).join('\n');
+  assert.match(notes, /Attach to prompt/);
+  assert.ok(notes.indexOf('minha-foto') < notes.indexOf('headset-pro-x'), 'Ordem de anexo: rosto antes do produto');
+  console.log('  ✓ TEST 36.1: V8.2 descreve "attached ... photo", sem nomes de arquivo nem --oref/--cref; notas dizem o que anexar e em que ordem.');
+
+  // 36.2 More than 4 references, style references and Niji 7.
+  const many = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: 'MIDJOURNEY_V8_2', videoTitle: 'Setup', ideaDescription: 'Eu no meu setup', references: [
+    cycle6Ref('a', 'PESSOA'), cycle6Ref('b', 'PRODUTO'), cycle6Ref('c', 'CENÁRIO'), cycle6Ref('d', 'COMPOSIÇÃO'), cycle6Ref('e', 'OUTRA'), cycle6Ref('estilo-x', 'ESTILO')
+  ] });
+  const manyNotes = (many.modelNotes || []).join('\n');
+  assert.match(manyNotes, /Só 4 imagens cabem/);
+  assert.match(manyNotes, /estilo-x na seção "Style Reference"/);
+  const niji = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: 'MIDJOURNEY_NIJI_7', videoTitle: 'Unboxing', ideaDescription: 'Eu mostrando o headset', references: refs });
+  assert.match((niji.modelNotes || []).join('\n'), /Niji 7 não tem o Edit Model/);
+  assert.ok(!niji.finalPrompt.includes('attached'), 'Niji 7 não tem anexos do Edit Model');
+  console.log('  ✓ TEST 36.2: Limite de 4 anexos, Style Reference separado e Niji 7 tratado como Image Prompt.');
+
+  // 36.3 Exact overlay text in double quotes, kept verbatim, with the limitation explained.
+  const withText = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: 'MIDJOURNEY_V8_2', videoTitle: 'Nunca compre isso', ideaDescription: 'Eu com cara de desconfiança', thumbnailText: 'NÃO COMPRE', references: [cycle6Ref('minha-foto', 'PESSOA')] });
+  assert.ok(withText.finalPrompt.includes('"NÃO COMPRE"'), 'Texto exato entre aspas duplas, sem tradução');
+  assert.match((withText.modelNotes || []).join('\n'), /acentos/);
+  const noText = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: 'MIDJOURNEY_V8_2', videoTitle: 'Nunca compre isso', ideaDescription: 'Eu', thumbnailText: 'NÃO COMPRE', textTreatment: 'SEM_TEXTO' });
+  assert.ok(!noText.finalPrompt.includes('NÃO COMPRE'), 'SEM_TEXTO não escreve o texto');
+  console.log('  ✓ TEST 36.3: Texto exato entre aspas duplas (V6+), limitação de acentos explicada; SEM_TEXTO respeitado.');
+
+  // 36.4 --raw only on request; creator exclusions as single-word --no.
+  const raw = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: 'MIDJOURNEY_V8_2', videoTitle: 'Teste', ideaDescription: 'Um teclado', extraInstructions: 'modo raw' });
+  assert.match(raw.finalPrompt, /--raw --v 8\.2$/);
+  const excl = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: 'MIDJOURNEY_V8_2', videoTitle: 'Teste', ideaDescription: 'Um teclado na mesa, sem neon e sem setas vermelhas' });
+  assert.match(excl.finalPrompt, /--no neon, arrows --v 8\.2$/);
+  assert.ok(!/sem neon|setas/i.test(excl.finalPrompt.split('\n')[0]), 'Exclusões fora do texto visual');
+  console.log('  ✓ TEST 36.4: --raw só quando pedido; exclusões viram --no com palavras únicas.');
+}
+
+// 37. Capas de jogos: arte real quando nomeadas, genéricas quando não
+console.log('\n37. Testando fidelidade de capas de jogos (PS2)...');
+{
+  const { generateSimpleThumbnail, buildScenePlan, resolveThemeContext, planSpatialHierarchy } = await import('../src/lib/simpleEngine/engine.ts');
+  const MODELS = ['GERAL', 'OPENAI_GPT_IMAGE_2_5_SUNBURST', 'GOOGLE_NANO_BANANA_2', 'MIDJOURNEY_V8_2', 'FLUX_2_PRO'];
+  const named = { ...CYCLE6_BASE, videoTitle: 'Os 10 melhores jogos de PS2', ideaDescription: 'Eu segurando o PS2 com as capas de GTA San Andreas e God of War reconhecíveis do lado', references: [cycle6Ref('minha-foto', 'PESSOA')] };
+  const unnamed = { ...CYCLE6_BASE, videoTitle: 'Minha coleção de PS2', ideaDescription: 'Eu segurando um PS2 com várias capas de jogos ao lado', references: [cycle6Ref('minha-foto', 'PESSOA')] };
+  for (const targetModel of MODELS) {
+    const a = generateSimpleThumbnail({ ...named, targetModel });
+    assert.match(a.finalPrompt, /real published (?:game )?cover/i, `[${targetModel}] capas nomeadas = arte real publicada`);
+    assert.ok(a.finalPrompt.includes('GTA San Andreas') && a.finalPrompt.includes('God of War'), `[${targetModel}] títulos preservados`);
+    assert.ok(!/Do not generate any text, letters, logos/.test(a.finalPrompt), `[${targetModel}] não proíbe os títulos impressos nas capas`);
+    assert.match((a.modelNotes || []).join(' '), /Para capas autênticas, adicione fotos das capas/);
+    const b = generateSimpleThumbnail({ ...unnamed, targetModel });
+    assert.match(b.finalPrompt, /unbranded|without invented|do not invent/i, `[${targetModel}] capas não nomeadas ficam genéricas`);
+    assert.ok(!/iconic hero game covers|recognizable hero game covers/i.test(b.finalPrompt), `[${targetModel}] não promete capas "icônicas" inventadas`);
+  }
+  // Covers supplied as PRODUTO references are the authority: no "generic cases" instruction.
+  const withCoverRefs = generateSimpleThumbnail({ ...unnamed, targetModel: 'OPENAI_GPT_IMAGE_2_5_SUNBURST', references: [cycle6Ref('minha-foto', 'PESSOA'), cycle6Ref('capa-gta', 'PRODUTO')] });
+  assert.ok(withCoverRefs.finalPrompt.includes('"capa-gta"') && !/keep the cases generic/i.test(withCoverRefs.finalPrompt), 'Foto da capa (PRODUTO) é a autoridade');
+  // Planner: no invented store shelves when the creator did not ask for them.
+  const sp = (input) => { const base = buildScenePlan(input); return planSpatialHierarchy(input, base, resolveThemeContext(input, base)); };
+  assert.ok(!/shel|store/i.test(sp(named).compositionDirective), 'Sem prateleiras/loja inventadas');
+  assert.match(sp(named).compositionDirective, /GTA San Andreas, God of War/);
+  assert.match(sp({ ...named, ideaDescription: 'Eu na loja com prateleiras de jogos de PS2' }).compositionDirective, /shelves/);
+  console.log('  ✓ TEST 37.1: Capas nomeadas = arte real (5 adaptadores), não nomeadas = genéricas, foto da capa manda; planner sem prateleiras inventadas.');
+}
+
+// 38. Linguagem técnica: exclusões e pedidos "meta" fora da cena
+console.log('\n38. Testando separação de cena, exclusões e pedidos sobre a imagem...');
+{
+  const { parseCreatorIdea, generateSimpleThumbnail, resolveSceneDescription } = await import('../src/lib/simpleEngine/engine.ts');
+  const cases = [
+    ['Eu segurando um controle, bem chamativo, sem neon e sem cara de IA', 'Eu segurando um controle', ['neon lighting', 'synthetic AI-generated look']],
+    ['Mostrando o Legion Go ligado, sem neon ou exageros.', 'Mostrando o Legion Go ligado.', ['neon lighting', 'exaggerated effects']],
+    ['Eu sem camisa na praia, sem setas vermelhas, viral', 'Eu sem camisa na praia', ['arrows']],
+    ['Um prato de feijoada fumegante visto de cima, sem fumaça exagerada', 'Um prato de feijoada fumegante visto de cima, sem fumaça exagerada', []],
+    ['Quero algo sem cara de IA e sem fundo branco', 'Quero algo sem fundo branco', ['synthetic AI-generated look']],
+    // Regression (found on the Cloudflare Preview): lowercase "eu" must not lose its "e".
+    ['eu segurando o console antigo na mesa', 'eu segurando o console antigo na mesa', []],
+    ['sem neon, e eu segurando o console', 'eu segurando o console', ['neon lighting']],
+  ];
+  for (const [idea, scene, exclusions] of cases) {
+    const p = parseCreatorIdea(idea);
+    assert.equal(p.scene, scene, `cena de "${idea}"`);
+    assert.deepEqual(p.exclusionsEn, exclusions, `exclusões de "${idea}"`);
+  }
+  // Realistic Portuguese, mixed language, quotes and typos: text that holds no removable
+  // exclusion comes back EXACTLY as typed; quoted overlay text is never parsed as instructions.
+  const untouched = [
+    'eu segurando um PS2', 'quero aparecer ao lado do console', 'com o celular na mão',
+    'um ambiente escuro, mas natural', 'comparando iPhone e Galaxy', 'texto exato: NÃO COMPRE',
+    'minha expressão deve continuar natural', 'Eu segurando o PS2... olhando pra câmera',
+    'e aí, eu segurando o controle', 'eu segurando um controle e', 'escrito “SEM NEON” no letreiro',
+    'me holding a PS5 controller, no neon, natural light', 'Évora ao fundo, eu sorrindo 😄',
+    'São Paulo à noite, eu na janela', 'escrito "SEM NEON E SEM IA" na placa',
+  ];
+  for (const idea of untouched) assert.equal(parseCreatorIdea(idea).scene, idea, `intocado: "${idea}"`);
+  assert.equal(parseCreatorIdea('escrito "VÍDEO VIRAL" na tela, sem neon').scene, 'escrito "VÍDEO VIRAL" na tela', 'texto entre aspas preservado');
+  assert.deepEqual(parseCreatorIdea('não quero parecer IA').exclusionsEn, ['synthetic AI-generated look']);
+  assert.equal(parseCreatorIdea('eu na minha mesa, não quero parecer feito por IA').scene, 'eu na minha mesa');
+  assert.equal(parseCreatorIdea('eu segurando o celuar na mao sem neon').scene, 'eu segurando o celuar na mao', 'erros de digitação ficam como estão');
+  console.log('  ✓ TEST 38.1: Exclusões conhecidas e palavras "meta" saem da cena; "sem camisa"/"sem fumaça" (conteúdo) ficam.');
+
+  // 38.2 "sem neon" no longer disables the neon avoid term, and reaches every adapter as an exclusion.
+  const input = { ...CYCLE6_BASE, videoTitle: 'Joguei 100 horas', ideaDescription: 'Eu segurando um controle de PS5, bem chamativo, sem neon', references: [cycle6Ref('minha-foto', 'PESSOA')] };
+  const geral = generateSimpleThumbnail({ ...input, targetModel: 'GERAL' }).finalPrompt;
+  assert.ok(!/sem neon|chamativ/i.test(geral.split('NEGATIVE / STRICTLY AVOID')[0]), 'GERAL: cena sem "sem neon"/"chamativo"');
+  assert.match(geral.split('NEGATIVE / STRICTLY AVOID')[1], /neon lighting/);
+  assert.match(generateSimpleThumbnail({ ...input, targetModel: 'OPENAI_GPT_IMAGE_2_5_SUNBURST' }).finalPrompt, /AVOID:\nneon lighting,/);
+  assert.match(generateSimpleThumbnail({ ...input, targetModel: 'GOOGLE_NANO_BANANA_2' }).finalPrompt, /Excluded by the creator: no neon lighting\./);
+  assert.match(generateSimpleThumbnail({ ...input, targetModel: 'FLUX_2_PRO' }).finalPrompt, /Zero neon lighting\./);
+  assert.match(geral, /PS5 controller/, '"controle de PS5" é o controle, não o console');
+  console.log('  ✓ TEST 38.2: Exclusões chegam ao AVOID/constraints de cada adaptador; "controle de PS5" vira "PS5 controller".');
+
+  // 38.3 Proper nouns, exact text and title fallback untouched.
+  assert.equal(resolveSceneDescription({ videoTitle: 'Testei o ROG Ally X', ideaDescription: 'sem neon' }), 'Testei o ROG Ally X', 'Só exclusões: cai para o título');
+  const textOut = generateSimpleThumbnail({ ...input, targetModel: 'GERAL', thumbnailText: 'Sem Neon, Só Jogo!' }).finalPrompt;
+  assert.ok(textOut.includes('"Sem Neon, Só Jogo!"'), 'Texto exato da thumbnail nunca é alterado');
+  console.log('  ✓ TEST 38.3: Nomes próprios e texto exato intactos; ideia só com exclusões usa o título.');
+}
+
+// 39. Comparações com vários produtos nomeados
+console.log('\n39. Testando comparações com 2+ produtos no Spatial Hierarchy Planner e nos adaptadores...');
+{
+  const { extractNamedProducts, buildScenePlan, resolveThemeContext, planSpatialHierarchy, generateSimpleThumbnail } = await import('../src/lib/simpleEngine/engine.ts');
+  const sp = (input) => { const base = buildScenePlan(input); return planSpatialHierarchy(input, base, resolveThemeContext(input, base)); };
+
+  assert.deepEqual(extractNamedProducts('iPhone 17 Pro vs Galaxy S26 Ultra', 'Os dois celulares lado a lado'), ['iPhone 17 Pro', 'Galaxy S26 Ultra']);
+  assert.deepEqual(extractNamedProducts('Colecionando PS2 em 2026', 'Eu segurando um PlayStation 2 com jogos de PS2'), ['PlayStation 2'], 'Aliases contam uma vez');
+  assert.deepEqual(extractNamedProducts('Galaxy S26 Ultra review', 'o S26 na mão'), ['Galaxy S26 Ultra'], 'Nome mais específico vence');
+  assert.deepEqual(extractNamedProducts('PS5 vs Xbox Series X', 'os dois consoles e o controle do PS5'), ['PS5', 'Xbox Series X']);
+  console.log('  ✓ TEST 39.1: Extração de produtos: comparação, aliases e nome mais específico.');
+
+  const two = sp({ ...CYCLE6_BASE, videoTitle: 'iPhone 17 Pro vs Galaxy S26 Ultra', ideaDescription: 'Os dois celulares lado a lado', targetModel: 'GERAL' });
+  assert.match(two.compositionDirective, /iPhone 17 Pro and Galaxy S26 Ultra side by side as distinct, equally prominent hero products/);
+  assert.ok(!/Smartphone/.test(two.compositionDirective), 'Não reduz a um "Smartphone" genérico');
+  const three = sp({ ...CYCLE6_BASE, videoTitle: 'Qual console comprar em 2026?', ideaDescription: 'Eu no centro com um PS5, um Xbox Series X e um Switch 2, com o PS5 em destaque', references: [cycle6Ref('minha-foto', 'PESSOA')], targetModel: 'GERAL' });
+  assert.match(three.compositionDirective, /PS5 as the largest hero product with Xbox Series X and Switch 2 clearly recognizable beside it/);
+  // Single product: unchanged behavior.
+  const single = sp({ ...CYCLE6_BASE, videoTitle: 'Review do meu celular', ideaDescription: 'Só o celular na mesa', targetModel: 'GERAL' });
+  assert.match(single.compositionDirective, /Smartphone positioned large in the immediate foreground/);
+  console.log('  ✓ TEST 39.2: Planner mantém 2-3 produtos nomeados e o destaque pedido; produto único inalterado.');
+
+  for (const targetModel of ['GERAL', 'OPENAI_GPT_IMAGE_2_5_SUNBURST', 'GOOGLE_NANO_BANANA_2', 'MIDJOURNEY_V8_2', 'FLUX_2_PRO']) {
+    const prompt = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel, videoTitle: 'iPhone 17 Pro vs Galaxy S26 Ultra', ideaDescription: 'Os dois celulares lado a lado' }).finalPrompt;
+    assert.ok(!/of the named product:/.test(prompt), `[${targetModel}] trava de produto não fica no singular genérico`);
+    assert.match(prompt, /distinct, correctly identified/, `[${targetModel}] produtos distintos, nunca fundidos`);
+  }
+  console.log('  ✓ TEST 39.3: Os 5 adaptadores tratam os dois produtos como distintos e identificados.');
+}
+
+// 40. Camada de IA gratuita (SIMULADA: binding Workers AI falso, nenhuma chamada de rede) + análise local de pixels
+console.log('\n40. Testando IA gratuita (Workers AI simulado): limites, privacidade, autoridade e fallback...');
+{
+  const wai = await import('../src/lib/ai/free/workersAi.ts');
+  const { analyzeWithFreeVision, improveWithFreeText, parseLabeledAnswer } = await import('../src/lib/ai/free/freeFeatures.ts');
+  const { WorkersAIDirector } = await import('../src/lib/ai/director/workersAiDirector.ts');
+  const { getVisualDirector, reconcileDirectorWithLocalRules, mapReferencesToDirectorInput } = await import('../src/lib/ai/orchestrator.ts');
+  const { computeImageMetrics, analyzeFromMetrics } = await import('../src/lib/simpleEngine/pixelAnalysis.ts');
+  const { buildScenePlan } = await import('../src/lib/simpleEngine/engine.ts');
+
+  const IMG = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+  // Workers AI chat shape (choices[0].message.content), as returned live by Llama 4 Scout.
+  const chat = content => ({ choices: [{ message: { content } }], usage: { prompt_tokens: 600, completion_tokens: 60, neurons: 19.4 } });
+  const fakeAi = (answer, calls = []) => ({ async run(model, inputs) { calls.push({ model, inputs }); const a = typeof answer === 'function' ? answer(model, inputs) : answer; return typeof a === 'string' ? chat(a) : a; } });
+  const questionOf = inputs => inputs.messages?.[0]?.content?.find?.(c => c.type === 'text')?.text || '';
+  const imageOf = inputs => inputs.messages?.[0]?.content?.find?.(c => c.type === 'image_url')?.image_url?.url || '';
+  const savedEnv = { ...process.env };
+  const restoreEnv = () => { for (const k of Object.keys(process.env)) if (!(k in savedEnv)) delete process.env[k]; Object.assign(process.env, savedEnv); };
+
+  // 40.1 Off by default; limits enforced before any call.
+  delete process.env.FREE_AI_PROVIDER;
+  wai.setWorkersAiBindingForTests(fakeAi('x'));
+  assert.equal((await wai.askImage(IMG, 'q')).ok, false, 'Sem FREE_AI_PROVIDER a camada fica desligada');
+  process.env.FREE_AI_PROVIDER = 'workers-ai';
+  process.env.FREE_AI_MAX_REQUESTS_PER_MINUTE = '2';
+  const calls = [];
+  wai.setWorkersAiBindingForTests(fakeAi('ok', calls));
+  const t0 = Date.UTC(2026, 10, 7, 12);
+  const r1 = await wai.runWorkersAi(wai.WORKERS_AI_MODELS.vision, { task: 'query' }, { inputTokensEstimate: 1200, maxOutputTokens: 100, now: t0 });
+  const r2 = await wai.runWorkersAi(wai.WORKERS_AI_MODELS.vision, { task: 'query' }, { inputTokensEstimate: 1200, maxOutputTokens: 100, now: t0 + 1000 });
+  const r3 = await wai.runWorkersAi(wai.WORKERS_AI_MODELS.vision, { task: 'query' }, { inputTokensEstimate: 1200, maxOutputTokens: 100, now: t0 + 2000 });
+  assert.ok(r1.ok && r2.ok && !r3.ok && r3.reason === 'throttled', 'Throttle por minuto');
+  assert.equal(calls.length, 2, 'Pedido barrado não chega ao modelo');
+  assert.equal(calls[0].inputs.max_tokens, 100, 'max_tokens sempre enviado');
+  // Oversized image (public API called directly): refused before any reservation or call.
+  const callsBeforeHuge = calls.length;
+  const huge = await wai.askImage('data:image/jpeg;base64,' + 'A'.repeat(wai.MAX_IMAGE_DATA_URL_CHARS), 'q');
+  assert.ok(!huge.ok && huge.reason === 'image-too-large' && calls.length === callsBeforeHuge, 'Imagem enorme não vai para a IA');
+  // Daily budget: blocks before calling; never above the free allocation even if configured higher.
+  process.env.FREE_AI_MAX_REQUESTS_PER_MINUTE = '100';
+  process.env.FREE_AI_DAILY_NEURONS = '50000';
+  wai.setWorkersAiBindingForTests(fakeAi('ok', calls));
+  assert.equal(wai.freeAiStatus(t0).remainingNeuronsEstimate, 9500, 'Teto nunca acima de 9.500 (abaixo dos 10.000 grátis)');
+  process.env.FREE_AI_DAILY_NEURONS = '60';
+  wai.setWorkersAiBindingForTests(fakeAi('ok', calls));
+  const before = calls.length;
+  const big = await wai.runWorkersAi(wai.WORKERS_AI_MODELS.vision, {}, { inputTokensEstimate: 1200, maxOutputTokens: 400, now: t0 });
+  assert.ok(!big.ok && big.reason === 'daily-budget-exhausted' && calls.length === before, 'Orçamento diário barra antes da chamada');
+  // Allocation exhausted on the platform: stop for the rest of the UTC day; new day resets.
+  process.env.FREE_AI_DAILY_NEURONS = '8000';
+  wai.setWorkersAiBindingForTests({ async run() { throw new Error('3036: Account limited: daily free neurons exceeded'); } });
+  const quota = await wai.runWorkersAi(wai.WORKERS_AI_MODELS.text, {}, { inputTokensEstimate: 100, maxOutputTokens: 100, now: t0 });
+  assert.ok(!quota.ok, 'Erro de cota vira fallback');
+  assert.equal(wai.freeAiStatus(t0).remainingNeuronsEstimate, 0, 'Cota esgotada trava o resto do dia');
+  wai.setWorkersAiBindingForTests({ async run() { return new Promise(() => {}); } });
+  const slow = await wai.runWorkersAi(wai.WORKERS_AI_MODELS.text, {}, { inputTokensEstimate: 10, maxOutputTokens: 10, timeoutMs: 30, now: t0 });
+  assert.equal(slow.reason, 'timeout', 'Timeout vira fallback');
+  wai.setWorkersAiBindingForTests(null);
+  assert.equal((await wai.runWorkersAi(wai.WORKERS_AI_MODELS.text, {}, { inputTokensEstimate: 10, maxOutputTokens: 10 })).reason, 'no-binding');
+  console.log('  ✓ TEST 40.1: Desligada por padrão; throttle, teto diário (≤ 9.500), trava ao esgotar a cota, timeout e ausência de binding viram fallback.');
+
+  // 40.2 Local pixel analysis on synthetic images (real computation, no AI).
+  const img = (w, h, fn) => { const d = new Uint8ClampedArray(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const [r, g, b] = fn(x, y); const i = (y * w + x) * 4; d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255; } return computeImageMetrics(d, w, h); };
+  const neon = analyzeFromMetrics(img(160, 90, (x, y) => ((x + y) % 7 < 2 ? [20, 230, 240] : [190, 30, 230])));
+  assert.match(neon.topProblem, /neon/i, 'Imagem roxo/ciano: problema principal = neon');
+  const flat = analyzeFromMetrics(img(160, 90, () => [128, 128, 128]));
+  assert.ok(flat.aiLooking.some(t => /Contraste baixo/.test(t)), 'Imagem cinza: contraste baixo');
+  const subject = analyzeFromMetrics(img(160, 90, (x, y) => {
+    const inC = x > 50 && x < 110 && y > 20 && y < 70;
+    return inC ? ((x * 7 + y * 3) % 11 < 5 ? [240, 200, 160] : [40, 30, 25]) : [18, 22, 30];
+  }));
+  assert.ok(subject.functioning.some(t => /Ponto focal claro/.test(t)), 'Assunto central detalhado: ponto focal claro');
+  assert.match(subject.fixPrompt, /PRESERVE:/);
+  // Product on a plain white studio background (seen with a real PS2 photo): not "HDR".
+  const studio = analyzeFromMetrics(img(160, 90, (x, y) => (x > 60 && x < 100 && y > 20 && y < 70 ? ((x + y) % 5 < 2 ? [30, 30, 35] : [70, 70, 80]) : [255, 255, 255])));
+  assert.ok(!studio.aiLooking.some(t => /HDR/.test(t)), 'Fundo branco liso não é chamado de HDR');
+  assert.ok(studio.aiLooking.some(t => /Fundo branco liso/.test(t)), 'Fundo branco liso é descrito corretamente');
+  console.log('  ✓ TEST 40.2: Análise local de pixels detecta neon, contraste baixo e ponto focal em imagens sintéticas.');
+
+  // 40.3 ANALYZE with the free vision model: parsed, merged with measurements, garbage rejected.
+  assert.deepEqual(parseLabeledAnswer('SUBJECT: a man holding a PS5\nTEXT: NONE\nARTIFICIAL: plastic skin; extra finger\nWORKS: strong silhouette'), { SUBJECT: 'a man holding a PS5', TEXT: 'NONE', ARTIFICIAL: 'plastic skin; extra finger', WORKS: 'strong silhouette' });
+  wai.setWorkersAiBindingForTests(fakeAi('SUBJECT: a man holding a PS5\nTEXT: VALE A PENA\nARTIFICIAL: plastic skin; extra finger on the left hand\nWORKS: strong silhouette'));
+  const metrics = img(160, 90, (x, y) => ((x + y) % 7 < 2 ? [20, 230, 240] : [190, 30, 230]));
+  const vis = await analyzeWithFreeVision(IMG, metrics);
+  assert.equal(vis.analysisSource, 'workers-ai');
+  assert.ok(vis.aiLooking.some(t => /plastic skin/.test(t)) && vis.functioning.some(t => /VALE A PENA/.test(t)), 'Observações da IA + texto lido');
+  assert.match(vis.topProblem, /neon/i, 'Medição forte (neon) continua sendo o problema principal');
+  assert.match(vis.fixPrompt, /PRESERVE:\n1\. The main subject \(a man holding a PS5\)/);
+  wai.setWorkersAiBindingForTests(fakeAi('I cannot help with that.'));
+  assert.equal((await analyzeWithFreeVision(IMG, metrics)).failed, 'unusable-answer', 'Resposta fora do formato = fallback local');
+  assert.equal((await analyzeWithFreeVision('https://example.com/a.jpg', metrics)).failed, 'unsupported-image', 'Só data URL de imagem é enviada');
+  console.log('  ✓ TEST 40.3: ANALISAR com IA grátis junta observações visuais às medições; resposta inválida cai para o local.');
+
+  // 40.4 IMPROVE: exact quoted text is sacred; engine still applies anti-slop/format.
+  wai.setWorkersAiBindingForTests(fakeAi({ response: null, choices: [{ message: { content: '```json\n{"changes":["Removi o neon"],"improvedPrompt":"Photographic thumbnail of a man holding a PS5, natural window light, text \\"VALE A PENA?\\""}\n```' } }] }));
+  const ok = await improveWithFreeText({ rawPrompt: 'epic thumbnail guy holding ps5, neon glow, 8k, text "VALE A PENA?"', targetModel: 'GERAL' });
+  assert.ok(ok && ok.improvedPrompt.includes('VALE A PENA?') && ok.changes[0].startsWith('IA: '), 'Reescrita aceita preserva o texto');
+  wai.setWorkersAiBindingForTests(fakeAi('{"changes":["x"],"improvedPrompt":"Photographic thumbnail of a man holding a PS5 with the text IS IT WORTH IT"}'));
+  assert.equal((await improveWithFreeText({ rawPrompt: 'guy holding ps5, text "VALE A PENA?"', targetModel: 'GERAL' })).failed, 'exact-text-lost', 'Texto traduzido/perdido = reescrita descartada');
+  // Invented domestic setting (seen live with the 8B model) is rejected too.
+  wai.setWorkersAiBindingForTests(fakeAi('{"changes":["x"],"improvedPrompt":"A young man sitting in a cozy living room holding a PS5, natural window light"}'));
+  assert.equal((await improveWithFreeText({ rawPrompt: 'guy holding ps5, neon glow, 8k', targetModel: 'GERAL' })).failed, 'invented-setting', 'Cenário doméstico inventado = descartado');
+  // A setting the creator asked for in Portuguese is not "invented" (environment fidelity).
+  wai.setWorkersAiBindingForTests(fakeAi('{"changes":["x"],"improvedPrompt":"A young man in his bedroom holding a PS5, natural window light, text \\"VALE A PENA?\\""}'));
+  const quarto = await improveWithFreeText({ rawPrompt: 'eu no meu quarto segurando o PS5, neon, 8k, texto "VALE A PENA?"', targetModel: 'GERAL' });
+  assert.ok(!quarto.failed, 'Quarto pedido em português = aceito');
+  assert.match(quarto.improvedPrompt, /bedroom/);
+  // Stray punctuation from the model is repaired outside quotes; "..." and quoted text untouched.
+  const { tidyModelPunctuation } = await import('../src/lib/ai/free/freeFeatures.ts');
+  assert.equal(tidyModelPunctuation('looking off-camera. . The text "WAIT.. WHAT ?" is visible , calm...'), 'looking off-camera. The text "WAIT.. WHAT ?" is visible, calm...');
+  wai.setWorkersAiBindingForTests(fakeAi('{"changes":["x"],"improvedPrompt":"A guy looking at something off-camera. . The text \\"VALE A PENA?\\" is visible in the image."}'));
+  const dots = await improveWithFreeText({ rawPrompt: 'guy shocked face, red arrow, text "VALE A PENA?"', targetModel: 'GERAL' });
+  assert.ok(!/\.\s+\./.test(dots.improvedPrompt), 'Sem ". ." no prompt final');
+  wai.setWorkersAiBindingForTests(fakeAi('not json'));
+  assert.equal((await improveWithFreeText({ rawPrompt: 'guy holding ps5 neon', targetModel: 'GERAL' })).failed, 'unusable-answer', 'JSON inválido = motor local');
+  // Live answer through the Workers binding without the final "}" (2026-11-07): still usable.
+  wai.setWorkersAiBindingForTests(fakeAi('{"changes": [\n  "Removido \'neon glow\' e \'8k\'"\n], \n"improvedPrompt": "Photograph of a guy holding a PS5, natural light, text \\"VALE A PENA?\\", calm expression"'));
+  const truncated = await improveWithFreeText({ rawPrompt: 'epic gaming thumbnail of a guy holding a ps5, neon glow, 8k, text "VALE A PENA?"', targetModel: 'GERAL' });
+  assert.ok(!truncated.failed && truncated.improvedPrompt.includes('VALE A PENA?'), 'JSON sem a chave final continua aproveitado');
+  console.log('  ✓ TEST 40.4: MELHORAR com IA grátis descarta reescritas que perdem o texto exato; JSON inválido = motor local.');
+
+  // 40.5 CREATE director: no face photos, role-limited facts, never decisive.
+  const sent = [];
+  wai.setWorkersAiBindingForTests(fakeAi((model, inputs) => {
+    sent.push(imageOf(inputs));
+    const q = questionOf(inputs);
+    return /PRODUCT/.test(q) ? 'PRODUCT: Sony DualSense controller' : /PLACE/.test(q) ? 'PLACE: small home office' : 'PROPS: an old map\nCLOTHING: leather armor\nHEAD: turned left';
+  }));
+  const refs = [
+    { id: 'p', name: 'rosto', role: 'PESSOA', url: 'data:image/jpeg;base64,UEVTU09BUElYRUxT' },
+    { id: 't', name: 'alvo', role: 'IMAGEM_ALVO', url: 'data:image/jpeg;base64,TARGET', isTarget: true },
+    { id: 'c', name: 'quarto', role: 'CENÁRIO', scenarioMode: 'REFERENCIA_AMBIENTE', url: 'data:image/jpeg;base64,MOOD' },
+    { id: 'd', name: 'controle', role: 'PRODUTO', url: 'data:image/jpeg;base64,PRODUCT' },
+  ];
+  const dirResult = await new WorkersAIDirector().analyze({ userIdea: 'Coloque meu rosto no personagem', references: mapReferencesToDirectorInput(refs), taskType: 'IDENTITY_TRANSFER' });
+  assert.ok(!sent.some(u => /UEVTU09BUElYRUxT|MOOD/.test(u)), 'Foto de rosto e cenário "só atmosfera" nunca são enviados');
+  assert.deepEqual(dirResult.visualFacts.map(f => f.category).sort(), ['CLOTHING_ARMOR', 'HEAD_ORIENTATION', 'PRODUCT_HARDWARE', 'PROPS']);
+  assert.ok(dirResult.visualFacts.every(f => f.confidence === 0.65) && dirResult.confidence === 0.5);
+  assert.match(dirResult.directorWarnings.join(' '), /Sony DualSense controller/);
+  const input = { videoTitle: 'Virei o protagonista', ideaDescription: 'Coloque meu rosto no personagem da imagem alvo', references: refs, targetModel: 'GERAL' };
+  const local = buildScenePlan(input);
+  const reconciled = reconcileDirectorWithLocalRules({ ...dirResult, taskType: 'CREATE_NEW_SCENE', confidence: 0.79 }, local, input);
+  assert.equal(reconciled.taskType, local.taskType, 'IA grátis nunca muda o tipo de tarefa');
+  assert.equal(reconciled.faceOwner, local.faceOwner, 'Rosto continua com a regra local');
+  assert.ok(reconciled.preserve.some(p => /leather armor/.test(p)), 'Fatos da imagem-alvo entram no PRESERVE');
+  assert.equal(dirResult.referencesAnalyzed, 2, 'Conta as imagens realmente analisadas (alvo + produto; rosto e "só atmosfera" fora)');
+  // Live (real Worker, 2026-11-07): answer without the "PRODUCT:" label is still used.
+  wai.setWorkersAiBindingForTests(fakeAi('**Sony PlayStation 2** gaming console.'));
+  const unlabeled = await new WorkersAIDirector().analyze({ userIdea: 'x', references: mapReferencesToDirectorInput([refs[3]]) });
+  assert.match(unlabeled.directorWarnings.join(' '), /como: Sony PlayStation 2 gaming console\. Se não/, 'Resposta sem rótulo ainda identifica o produto (sem ** nem ponto duplo)');
+  console.log('  ✓ TEST 40.5: Diretor grátis não envia rosto, só descreve papéis permitidos e nunca muda autoria ou tarefa.');
+
+  // 40.6 Provider cascade and Gemini free-tier privacy.
+  delete process.env.OPENAI_API_KEY; delete process.env.GEMINI_API_KEY; delete process.env.AI_DIRECTOR_PROVIDER;
+  assert.equal(getVisualDirector().providerName, 'workers-ai', 'Sem chaves pagas: cascata usa Workers AI');
+  delete process.env.FREE_AI_PROVIDER;
+  assert.equal(getVisualDirector().providerName, 'local', 'Sem nada habilitado: motor local');
+  process.env.GEMINI_API_KEY = 'test-key-not-real';
+  process.env.GEMINI_FREE_TIER = 'true';
+  const bodies = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => { bodies.push(String(init?.body || '')); return new Response('{}', { status: 500 }); };
+  try {
+    const { director } = getVisualDirector();
+    await director.analyze({ userIdea: 'x', references: mapReferencesToDirectorInput(refs) }).catch(() => null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.ok(bodies.length > 0 && !bodies.some(b => b.includes('UEVTU09BUElYRUxT')), 'Gemini gratuito nunca recebe a foto de rosto');
+  assert.ok(bodies.some(b => b.includes('PRODUCT')), 'Demais referências continuam sendo enviadas');
+  console.log('  ✓ TEST 40.6: Cascata pago → Workers AI → local; chave Gemini gratuita nunca recebe fotos de rosto.');
+
+  wai.setWorkersAiBindingForTests(undefined);
+  restoreEnv();
+}
+
+// 41. Orçamento diário global (Durable Object) sob concorrência — SIMULADO com o mesmo ledger
+console.log('\n41. Testando orçamento global de Neurons sob concorrência (ledger do Durable Object)...');
+{
+  const wai = await import('../src/lib/ai/free/workersAi.ts');
+  const ledger = await import('../src/lib/ai/free/budgetLedger.ts');
+  const savedEnv = { ...process.env };
+  process.env.FREE_AI_PROVIDER = 'workers-ai';
+  process.env.FREE_AI_MAX_REQUESTS_PER_MINUTE = '120';
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // Same semantics as FreeAiBudget: one shared state, each RPC applied atomically (after a network-like delay).
+  const makeBudgetStub = () => {
+    const state = ledger.emptyLedger();
+    let queue = Promise.resolve();
+    const atomic = fn => (queue = queue.then(async () => { await sleep(1); return fn(); }));
+    return {
+      state,
+      reserve: (a, l, m, now) => atomic(() => ({ ...ledger.reserve(state, a, l, m, now), day: state.day })),
+      settle: (d, r, a) => atomic(() => ledger.settle(state, d, r, a)),
+      exhaust: (d, l) => atomic(() => ledger.exhaust(state, d, l)),
+      used: now => atomic(() => ledger.used(state, now)),
+    };
+  };
+  let aiCalls = 0;
+  const slowAi = { async run() { aiCalls++; await sleep(20); return { choices: [{ message: { content: 'ok' } }] }; } };
+  const call = () => wai.runWorkersAi(wai.WORKERS_AI_MODELS.text, {}, { inputTokensEstimate: 400, maxOutputTokens: 600 });
+  const worst = Math.ceil((400 * 24545 + 600 * 77273) / 1e6);
+
+  // 41.1 50 concurrent requests (as if from many Worker instances) share one ledger: never above the cap.
+  process.env.FREE_AI_DAILY_NEURONS = String(worst * 7 + 3);
+  const stub = makeBudgetStub();
+  wai.setWorkersAiBindingForTests(slowAi, stub);
+  aiCalls = 0;
+  const results = await Promise.all(Array.from({ length: 50 }, call));
+  assert.equal(results.filter(r => r.ok).length, 7, 'Exatamente 7 chamadas cabem no teto');
+  assert.equal(aiCalls, 7, 'Nenhuma chamada extra chega ao modelo');
+  assert.ok(results.filter(r => !r.ok).every(r => r.reason === 'daily-budget-exhausted'));
+  assert.ok(stub.state.neurons <= Number(process.env.FREE_AI_DAILY_NEURONS), 'Ledger nunca passa do teto');
+  console.log(`  ✓ TEST 41.1: 50 pedidos concorrentes, ledger compartilhado: 7 chamadas (${worst} Neurons cada no pior caso), 43 barrados, teto nunca ultrapassado.`);
+
+  // 41.2 Real usage replaces the reservation; ledger down = fail closed (model never called).
+  const stub2 = makeBudgetStub();
+  process.env.FREE_AI_DAILY_NEURONS = '8000';
+  wai.setWorkersAiBindingForTests({ async run() { return { choices: [{ message: { content: 'ok' } }], usage: { neurons: 12.3 } }; } }, stub2);
+  assert.ok((await call()).ok);
+  assert.equal(stub2.state.neurons, 13, 'Reserva substituída pelo uso real (usage.neurons arredondado para cima)');
+  aiCalls = 0;
+  wai.setWorkersAiBindingForTests(slowAi, { reserve: async () => { throw new Error('DO unavailable'); }, settle: async () => {}, exhaust: async () => {}, used: async () => 0 });
+  const down = await call();
+  assert.equal(down.reason, 'budget-unavailable');
+  assert.equal(aiCalls, 0, 'Sem ledger, a IA não é chamada');
+  console.log('  ✓ TEST 41.2: Uso real substitui a reserva; ledger indisponível = IA não chamada (fail closed).');
+
+  // 41.3 Without the Durable Object (tests / next dev): in-process ledger is race-free too.
+  process.env.FREE_AI_DAILY_NEURONS = String(worst * 3 + 1);
+  wai.setWorkersAiBindingForTests(slowAi, null);
+  aiCalls = 0;
+  const local = await Promise.all(Array.from({ length: 20 }, call));
+  assert.equal(local.filter(r => r.ok).length, 3);
+  assert.equal(aiCalls, 3);
+  console.log('  ✓ TEST 41.3: Sem Durable Object, o ledger em memória também não é furado por concorrência.');
+
+  // 41.4 /api/ai/status reports the Durable Object's usage, not the (unused) in-process ledger.
+  process.env.FREE_AI_DAILY_NEURONS = '2000';
+  const usedStub = { async used() { return 1500; }, async reserve() { throw new Error('x'); }, async settle() {}, async exhaust() {} };
+  wai.setWorkersAiBindingForTests(slowAi, usedStub);
+  assert.equal((await wai.freeAiStatusLive()).remainingNeuronsEstimate, 500, 'Status lê o uso do Durable Object');
+  wai.setWorkersAiBindingForTests(slowAi, { ...usedStub, async used() { throw new Error('down'); } });
+  assert.equal((await wai.freeAiStatusLive()).remainingNeuronsEstimate, 0, 'Ledger fora do ar: status mostra 0 (chamadas também param)');
+  console.log('  ✓ TEST 41.4: Status do orçamento vem do Durable Object; ledger inacessível mostra 0.');
+
+  wai.setWorkersAiBindingForTests(undefined);
+  for (const k of Object.keys(process.env)) if (!(k in savedEnv)) delete process.env[k];
+  Object.assign(process.env, savedEnv);
+}
+// 42. OpenAI AVOID list hygiene (found in the real-image kit, case 04: product comparison).
+console.log('\n42. Testando a lista AVOID do OpenAI (sem pessoa, sem duplicatas, sem "no " dentro de AVOID)...');
+{
+  const { generateSimpleThumbnail } = await import('../src/lib/simpleEngine/engine.ts');
+  const avoidOf = input => generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: 'OPENAI_GPT_IMAGE_2_5_SUNBURST', ...input }).finalPrompt.split('\nAVOID:\n')[1];
+  const product = avoidOf({ videoTitle: 'iPhone 17 Pro vs Galaxy S26 Ultra', ideaDescription: 'Os dois celulares lado a lado' });
+  assert.ok(!/face|skin|beard|finger|identity/i.test(product), 'Produto sem pessoa: AVOID sem termos de rosto/mãos');
+  assert.match(product, /wrong geometry, incorrect buttons, wrong ports/, 'Produto sem pessoa: termos de fidelidade do produto');
+  assert.ok(!/analog sticks/.test(product), 'Celular: sem "analog sticks"');
+  const person = avoidOf({ videoTitle: 'Testei o PS2', ideaDescription: 'eu segurando o PS2', references: [cycle6Ref('eu', 'PESSOA')] });
+  assert.match(person, /face swap/, 'Com pessoa: proteções de rosto mantidas');
+  assert.match(person, /fingers intersecting the product/, 'Com pessoa: proteções de mãos mantidas');
+  for (const list of [product, person]) {
+    const items = list.replace(/\.$/, '').split(/,\s*(?![^(]*\))/);
+    assert.equal(new Set(items).size, items.length, 'AVOID sem itens repetidos');
+    assert.ok(!items.some(i => /^no\s/.test(i)), 'AVOID sem "no " (negação dupla)');
+  }
+  console.log('  ✓ TEST 42: AVOID do OpenAI sem ruído de rosto em fotos de produto, sem duplicatas e sem negação dupla.');
+
+  // 42.2 Exact text asked for inside the idea (Texto field empty): no adapter may also forbid text.
+  const { withIdeaTextRequest } = await import('../src/lib/simpleEngine/engine.ts');
+  for (const model of ['GERAL', 'OPENAI_GPT_IMAGE_2_5_SUNBURST', 'GOOGLE_NANO_BANANA_2', 'MIDJOURNEY_V8_2', 'FLUX_2_PRO']) {
+    const p = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: model, videoTitle: 'Testei o PS2', ideaDescription: 'escrito "VÍDEO VIRAL" na tela, eu segurando o PS2' }).finalPrompt;
+    assert.ok(p.includes('VÍDEO VIRAL'), `${model}: texto exato presente`);
+    assert.ok(!/Do not add overlay text|--no[^\n]*\btext\b/i.test(p), `${model}: sem instrução contraditória de "sem texto"`);
+  }
+  assert.equal(withIdeaTextRequest({ ...CYCLE6_BASE, ideaDescription: 'eu segurando a capa do jogo "God of War"' }).thumbnailText, '', 'Nome entre aspas sem pedido de texto não vira texto');
+  assert.equal(withIdeaTextRequest({ ...CYCLE6_BASE, thumbnailText: 'OUTRO', ideaDescription: 'texto "VALE?"' }).thumbnailText, 'OUTRO', 'Campo Texto tem prioridade');
+  assert.equal(withIdeaTextRequest({ ...CYCLE6_BASE, textTreatment: 'SEM_TEXTO', ideaDescription: 'texto "VALE?"' }).thumbnailText, '', 'SEM_TEXTO respeitado');
+  console.log('  ✓ TEST 42.2: Texto exato pedido dentro da ideia vira o texto da thumbnail, sem "não adicione texto" contraditório.');
 }
 console.log('\n✅ TODOS OS TESTES PASSARAM COM SUCESSO! VALIDAÇÃO CONCLUÍDA.');

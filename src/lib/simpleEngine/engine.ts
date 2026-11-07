@@ -41,6 +41,10 @@ import { planPhysicalInteraction } from './interactionPlanner.ts';
 import { planSpatialHierarchy, isCompositionAuthoritativelyOwned } from './spatialHierarchyPlanner.ts';
 import { mergeComplementaryPlan } from './complementaryMerge.ts';
 import { PERSON_KEYWORDS } from './personDetection.ts';
+import { extractTitleNames, extractNamedProducts, extractCoverTitles, mentionsGameCovers } from './productNames.ts';
+import { parseCreatorIdea, midjourneyNoTerms } from './promptLanguage.ts';
+
+export { extractTitleNames, extractNamedProducts, extractCoverTitles, mentionsGameCovers, parseCreatorIdea };
 
 export {
   resolveThemeContext,
@@ -165,6 +169,31 @@ export function buildAntiSlopAvoid(userText: string): string[] {
   });
 }
 
+const HUMAN_AVOID_TERM = /\b(face|faces|facial|skin|beauty|eyes|teeth|expression|mouth|identity|age change|hair|beard|jaw|skull|fingers?|digits|hands?|grip|arm pose|body proportion)\b/i;
+// Already covered by a more specific term earlier in the same AVOID list.
+const REDUNDANT_AVOID = new Set(['plastic skin', 'waxy skin texture', 'artificial beauty filter jaw slimming', 'no duplicated or fused fingers']);
+
+/**
+ * AVOID list hygiene: exact duplicates and redundant variants removed, "no " prefixes dropped
+ * (the list is already a negative), and human terms removed when no person is in the scene.
+ */
+export function dedupeAvoid(items: string[], noPeople: boolean): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const hasPlasticWaxy = items.includes('plastic waxy skin');
+  for (const raw of items) {
+    const item = raw.replace(/^no\s+/i, '').trim();
+    if (!item) continue;
+    if (noPeople && HUMAN_AVOID_TERM.test(item)) continue;
+    if (hasPlasticWaxy && REDUNDANT_AVOID.has(raw)) continue;
+    const key = item.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 // Helper to detect gaming/tech/hardware in text
 export function detectTechHardware(text: string): boolean {
   const pattern = /(legion|steam\s*deck|rog\s*ally|switch|gameboy|console|\bps[1-5]\b|\bpsp\b|ps\s*vita|dualsense|dualshock|headset|celular|joystick|controlador|videogame|gpu|rtx|playstation|xbox|nintendo|iphone|macbook|ipad|android|smartphone|pc\s*gamer|computador|setup|teclado|mouse|hardware|placa\s*de\s*v[íi]deo|intel|amd|ryzen|gadget|monitor|notebook|laptop|chip|circuito|bancada|teardown)/i;
@@ -188,51 +217,6 @@ export function describeHeldObjectEn(text: string): string | null {
   return HELD_OBJECT_EN[m[1].toLowerCase()] || null;
 }
 
-const KNOWN_BRAND_WORDS = /^(iphone|ipad|macbook|airpods|galaxy|pixel|xiaomi|redmi|poco|motorola|moto|samsung|apple|sony|playstation|xbox|nintendo|switch|steam|legion|rog|lenovo|asus|acer|dell|alienware|razer|logitech|corsair|hyperx|nvidia|geforce|radeon|ryzen|intel|gopro|dji|canon|nikon|fujifilm|tesla|honda|toyota|civic|corolla|volkswagen|fiat|chevrolet|ford|bmw|porsche|ferrari|lego|minecraft|fortnite|zelda|mario|pokemon|pokémon)$/i;
-
-// Words that describe the video, not the object ("Gameplay", "Review", "Unboxing", "Vs").
-const TITLE_VIDEO_WORDS = /^(gameplay|review|reviews|unboxing|teste|testei|tutorial|novidades|vale|vs|versus|top|melhores|piores|dicas|guia|tier|ranking|análise|analise|comparativo)$/i;
-
-/** A token that clearly signals a product/proper name rather than an ordinary capitalized word. */
-function isStrongNameToken(token: string): boolean {
-  return /[A-Za-z]\d|\d[A-Za-z]/.test(token) ||   // S26, PS5, RTX4090, 4K
-    /^[a-z]+[A-Z]/.test(token) ||                 // iPhone, eFootball
-    /^[A-Z]{2,5}$/.test(token) ||                 // OLED, GTA, DLC
-    KNOWN_BRAND_WORDS.test(token);
-}
-
-/**
- * Product/proper names that appear in the video title, e.g. "iPhone 17 Pro vs Galaxy S26 Ultra"
- * -> ["iPhone 17 Pro", "Galaxy S26 Ultra"]. Conservative: a run of capitalized/numeric tokens is kept
- * only when it contains a strong name token, so "Unboxing Gamer" or "Testei" never qualify.
- */
-export function extractTitleNames(title: string): string[] {
-  const text = (title || '').trim();
-  // An all-caps title has no usable capitalization signal.
-  if (!text || text === text.toUpperCase()) return [];
-  const tokens = text.split(/\s+/);
-  const names: string[] = [];
-  let run: string[] = [];
-  const flush = () => {
-    // A lone brand or acronym ("Apple", "GTA") names a topic, not a specific object to draw.
-    const qualifies = run.length > 1
-      ? run.some(isStrongNameToken)
-      : run.length === 1 && (/[A-Za-z]\d|\d[A-Za-z]/.test(run[0]) || /^[a-z]+[A-Z]/.test(run[0]));
-    if (qualifies) names.push(run.join(' '));
-    run = [];
-  };
-  for (const raw of tokens) {
-    const token = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}+]+$/gu, '');
-    if (TITLE_VIDEO_WORDS.test(token)) { flush(); continue; }
-    const startsName = /^\p{Lu}/u.test(token) || /^[a-z]+[A-Z]/.test(token) || /[A-Za-z]\d|\d[A-Za-z]/.test(token);
-    const continuesName = run.length > 0 && /^\d+$/.test(token); // "iPhone 17"
-    if (token && (startsName || continuesName)) run.push(token);
-    else flush();
-    if (/[,:;!?()|]$|—|–/.test(raw)) flush();
-  }
-  flush();
-  return names;
-}
 
 /**
  * Scene text for new compositions: the creator's idea, plus product/proper names that appear only in
@@ -243,7 +227,9 @@ export function resolveSceneDescription(
   input: Pick<CreateThumbnailInput, 'videoTitle' | 'ideaDescription'>,
   hasTargetImage = false
 ): string {
-  const idea = (input.ideaDescription || '').trim();
+  // Only what should be drawn: known exclusions ("sem neon") and meta requests ("chamativo")
+  // are moved out of the scene by parseCreatorIdea and rendered as exclusions instead.
+  const idea = parseCreatorIdea(input.ideaDescription || '').scene;
   const title = (input.videoTitle || '').trim();
   if (!idea) return title;
   if (hasTargetImage) return idea;
@@ -1197,6 +1183,45 @@ export interface NewSceneSubject {
   productLock: boolean;
   productRefs: SimpleReference[];
   productFacts: string[];
+  /** Distinct products named by the creator ("iPhone 17 Pro", "Galaxy S26 Ultra"); game covers excluded. */
+  namedProducts?: string[];
+  /** Game titles the creator named as covers ("GTA San Andreas", "God of War"). */
+  coverTitles?: string[];
+  /** The creator talks about game covers/cases. */
+  mentionsCovers?: boolean;
+  /** Known visual effects/styles the creator ruled out ("sem neon"), in English. */
+  exclusions?: string[];
+}
+
+/** " of each named product (A, B)" / " of the named product (A)" / " from product reference ...". */
+function productOwnerPhrase(subject: NewSceneSubject): string {
+  if (subject.productRefs.length > 0) return ` from product reference ${refNameList(subject.productRefs)}`;
+  const named = subject.namedProducts || [];
+  if (named.length >= 2) return ` of each named product (${named.join(', ')})`;
+  if (named.length === 1) return ` of the named product (${named[0]})`;
+  return ' of the named product';
+}
+
+/** Extra sentence that keeps two or more named products apart. */
+function distinctProductsSentence(subject: NewSceneSubject): string {
+  return (subject.namedProducts || []).length >= 2 && subject.productRefs.length === 0
+    ? ' Each one is its own distinct, correctly identified product, never merged, swapped, or replaced by a generic look-alike.'
+    : '';
+}
+
+/**
+ * Game covers: named titles must be the real published cover art; unnamed covers without a
+ * reference must stay generic instead of inventing recognizable-looking fake art.
+ */
+function coverFidelitySentence(subject: NewSceneSubject): string {
+  const titles = subject.coverTitles || [];
+  if (titles.length > 0) {
+    return `Game cover fidelity: the covers show the real published cover art of ${titles.join(' and ')}, front-facing and large enough to recognize at 120px, with their official titles legible; never invented look-alike art, fake titles, or misspelled logos.`;
+  }
+  if (subject.mentionsCovers && subject.productRefs.length === 0) {
+    return 'Game cases: no specific games were named, so keep the cases generic and unbranded; do not invent recognizable-looking cover art, logos, or game titles.';
+  }
+  return '';
 }
 
 const refNameList = (refs: SimpleReference[]) => refs.map(r => `"${r.name}"`).join(', ');
@@ -1219,7 +1244,7 @@ export function buildOpenAIStructuredPrompt({
   arParam: string;
   subject?: NewSceneSubject;
 }): string {
-  const { videoTitle = '', ideaDescription = '', references = [], extraInstructions } = input;
+  const { references = [], extraInstructions } = input;
   const cleanIdea = resolveSceneDescription(input, Boolean(plan.targetImage));
   const targetName = plan.targetImage?.name || 'personagem/imagem mestre';
   const idName = plan.identitySource?.name || 'foto de identidade';
@@ -1377,11 +1402,13 @@ export function buildOpenAIStructuredPrompt({
         : `Natural facial asymmetry, closed-mouth expression, and skin texture.`);
     }
     if (subject.productLock) {
-      const owner = subject.productRefs.length > 0 ? ` from product reference ${refNameList(subject.productRefs)}` : ' of the named product';
+      const owner = productOwnerPhrase(subject);
       lines.push(isSunburst
-        ? `Product fidelity${owner}: authentic industrial geometry, true proportions and scale, real button, port, and logo placement, factory materials, and an instantly recognizable silhouette; never a generic or invented look-alike.${factSentence(subject.productFacts)}`
-        : `Product fidelity${owner}: real geometry, proportions, buttons, ports, and materials.${factSentence(subject.productFacts)}`);
+        ? `Product fidelity${owner}: authentic industrial geometry, true proportions and scale, real button, port, and logo placement, factory materials, and an instantly recognizable silhouette; never a generic or invented look-alike.${distinctProductsSentence(subject)}${factSentence(subject.productFacts)}`
+        : `Product fidelity${owner}: real geometry, proportions, buttons, ports, and materials.${distinctProductsSentence(subject)}${factSentence(subject.productFacts)}`);
     }
+    const coverLine = coverFidelitySentence(subject);
+    if (coverLine) lines.push(coverLine);
     lines.push(isSunburst ? `Authentic physical materials and tactile textures.` : `Physical materials and camera perspective.`);
     if (isSunburst) lines.push(`Grounded real-world scale and camera perspective.`);
     preserveText = lines.map((l, i) => `${i + 1}. ${l}`).join('\n');
@@ -1421,10 +1448,19 @@ export function buildOpenAIStructuredPrompt({
     ? `Physically motivated illumination with clean directional key light, subtle natural fill, and soft realistic shadow falloff. Directional coherence across all elements. Zero unmotivated neon rim lights, laser glows, or synthetic halos.`
     : `Motivated directional key light with natural shadow falloff. Zero neon rim light or synthetic glow.`;
 
-  // 10. AVOID
-  const avoidList = isSunburst
-    ? `face swap, face paste, flat frontal face pasted on angled head, distorted skull geometry, plastic waxy skin, beauty filter jaw slimming, open mouth screaming shock face, deformed hands, extra fingers, duplicated digits, intersecting hardware, floating embers, flying sparks, neon blue-purple wash, unmotivated rim light, domestic clutter (sofas, bedroom lamps, desks unless requested), ${CORE_ANTI_SLOP_AVOID.slice(0, 18).join(', ')}.`
-    : `face swap, face paste, flat face overlay, plastic skin, open mouth screaming face, extra fingers, neon glow, unmotivated rim light, domestic clutter, ${CORE_ANTI_SLOP_AVOID.slice(0, 12).join(', ')}.`;
+  // 10. AVOID (creator exclusions such as "sem neon" first, in English)
+  const avoidItems = [
+    ...(subject?.exclusions || []),
+    ...(isSunburst
+      ? ['face swap', 'face paste', 'flat frontal face pasted on angled head', 'distorted skull geometry', 'plastic waxy skin', 'beauty filter jaw slimming', 'open mouth screaming shock face', 'deformed hands', 'extra fingers', 'duplicated digits', 'intersecting hardware', 'floating embers', 'flying sparks', 'neon blue-purple wash', 'unmotivated rim light', 'domestic clutter (sofas, bedroom lamps, desks unless requested)', ...CORE_ANTI_SLOP_AVOID.slice(0, 18)]
+      : ['face swap', 'face paste', 'flat face overlay', 'plastic skin', 'open mouth screaming face', 'extra fingers', 'neon glow', 'unmotivated rim light', 'domestic clutter', ...CORE_ANTI_SLOP_AVOID.slice(0, 12)]),
+  ];
+  // No person in the scene and no person/target reference: face, skin, hand and identity
+  // warnings only add noise (and name faces in a product shot).
+  const noPeople = Boolean(subject && !subject.hasPerson) && !references.some(r => r.role === 'PESSOA' || r.role === 'IMAGEM_ALVO');
+  // ...and the product-fidelity terms take that place (wrong geometry, buttons, ports, logo, silhouette).
+  if (noPeople) avoidItems.push(...CORE_ANTI_SLOP_AVOID.slice(20, 30).filter(t => t !== 'incorrect analog sticks' || /controle|controller|console|ps\d|playstation|xbox|switch|deck|ally|legion/i.test(`${input.videoTitle} ${input.ideaDescription}`)));
+  const avoidList = `${dedupeAvoid(avoidItems, noPeople).join(', ')}.`;
 
   return `GOAL:
 ${goal}
@@ -1527,10 +1563,15 @@ export function buildGooglePrompt({
       attributeControl += `- Facial Identity: ${refImageList(refs, subject.identityRefs)} controls recognizable bone structure, eye shape, true age, hairline, and facial hair only. Clothing, background, lighting, and pose come from this scene, not from that photo.\n`;
     }
     if (subject.productLock) {
+      const named = subject.namedProducts || [];
       attributeControl += subject.productRefs.length > 0
         ? `- Product: ${refImageList(refs, subject.productRefs)} controls exact industrial geometry, proportions, buttons, ports, and materials only, not its studio background.\n`
-        : `- Product: the named product keeps its real industrial geometry, proportions, button and port layout, and materials, never a generic look-alike.\n`;
+        : named.length >= 2
+        ? `- Products: each named product (${named.join(', ')}) keeps its own real industrial geometry, proportions, button and port layout, and materials, shown as distinct, correctly identified products, never merged, swapped, or a generic look-alike.\n`
+        : `- Product: the named product${named.length === 1 ? ` (${named[0]})` : ''} keeps its real industrial geometry, proportions, button and port layout, and materials, never a generic look-alike.\n`;
     }
+    const coverLine = coverFidelitySentence(subject);
+    if (coverLine) attributeControl += `- ${coverLine}\n`;
     const otherRefs = refs.filter(r => !subject.identityRefs.includes(r) && !subject.productRefs.includes(r));
     if (otherRefs.length > 0) {
       attributeControl += `- Other references: ${refImageList(refs, otherRefs)} control only the attributes of their assigned roles.\n`;
@@ -1591,8 +1632,9 @@ export function buildGooglePrompt({
   const domesticExclusion = hasAuthoritativeEnvironment(plan)
     ? 'Zero synthetic AI gloss, waxy smoothing, or neon rim lights.'
     : 'Zero synthetic AI gloss, waxy smoothing, neon rim lights, or unrequested domestic clutter (no bedrooms, sofas, desks, or lamps).';
+  const creatorExclusion = subject?.exclusions?.length ? ` Excluded by the creator: no ${subject.exclusions.join(', no ')}.` : '';
   const photoDirectives = `PHOTOGRAPHIC DIRECTIVES:
-16:9 widescreen format (${arParam}). 35mm lens perspective preserving authentic spatial depth. Directed visual storytelling with bold subject silhouette optimized for 120px mobile thumbnail scale. Motivated physical lighting with natural directional key light and soft shadow falloff. ${domesticExclusion}${fidelityNote}`;
+16:9 widescreen format (${arParam}). 35mm lens perspective preserving authentic spatial depth. Directed visual storytelling with bold subject silhouette optimized for 120px mobile thumbnail scale. Motivated physical lighting with natural directional key light and soft shadow falloff. ${domesticExclusion}${creatorExclusion}${fidelityNote}`;
 
   // 6. TYPOGRAPHY
   const typoSection = `TYPOGRAPHY:
@@ -1625,10 +1667,15 @@ export interface MidjourneyPromptOptions {
 
 /**
  * Builds concise visual prompt for Midjourney (V8.2 / Niji 7).
- * Strips verbose internal engine syntax (HAIR OWNER, TASK, contract labels).
- * Emits --ar 16:9 or --ar 9:16.
- * Emits --v 8.2 or --niji 7.
- * Applies --style raw only when explicitly requested by user (never as automatic default).
+ *
+ * Reference handling follows Midjourney's documentation (docs.midjourney.com, checked Nov 2026):
+ * - V8.1/V8.2 use the Edit Model: reference images are attached in the Imagine bar
+ *   ("Attach to prompt", up to 4). It replaces Omni Reference (--oref, V7 only) and Character
+ *   Reference, so no --oref/--cref is emitted.
+ * - Niji 7 has no Edit Model; images can only be Image Prompts (inspiration, not exact copies).
+ * - Midjourney cannot read local file names, so the prompt describes "the attached ... image";
+ *   which file to attach, and in which order, goes to modelNotes (see buildModelNotes).
+ * - Exact words render best inside double quotes (V6+); Raw is --raw, only when requested.
  */
 export function buildMidjourneyPrompt({
   plan,
@@ -1638,53 +1685,120 @@ export function buildMidjourneyPrompt({
 }: MidjourneyPromptOptions): string {
   const cleanIdea = resolveSceneDescription(input, Boolean(plan.targetImage));
   const arFlag = input.aspectRatio === '9:16' ? '--ar 9:16' : '--ar 16:9';
-  const targetName = plan.targetImage?.name || 'target character';
-  const idName = plan.identitySource?.name || 'reference person';
-  const prodName = plan.productSource?.name || 'hardware device';
-  const envName = plan.environmentSource?.name || 'environment';
+  // V8.2 sees attached images; Niji 7 only sees them as image prompts.
+  const attached = variant === 'V8_2' ? 'attached' : 'reference';
+  const targetImg = `the ${attached} target image`;
+  const faceImg = `the ${attached} face photo`;
+  const productImg = `the ${attached} product photo`;
+  const envImg = `the ${attached} location photo`;
 
   let visualText = '';
 
   if (plan.taskType === 'IDENTITY_TRANSFER') {
     const hairDesc = plan.hairOwner === 'TARGET'
-      ? `preserving the target character's authentic hairstyle, hair texture, and volume from "${targetName}"`
-      : `with natural hairstyle from "${idName}"`;
-    const beardDesc = plan.beardOwner === 'TARGET'
-      ? `and exact facial hair from "${targetName}"`
-      : '';
+      ? `keeping the character's hairstyle, hair texture, and volume from ${targetImg}`
+      : `with the natural hairstyle from ${faceImg}`;
+    const beardDesc = plan.beardOwner === 'TARGET' ? ` and the exact facial hair from ${targetImg}` : '';
+    const held = describeHeldObjectEn(cleanIdea);
 
-    visualText = `Photographic YouTube thumbnail, ${cleanIdea}, featuring the person from "${idName}" organically embodied as the character from "${targetName}", ${hairDesc} ${beardDesc}, keeping the exact costume from "${targetName}", ${describeHeldObjectEn(cleanIdea) ? `holding the ${describeHeldObjectEn(cleanIdea)} naturally` : 'keeping any held objects'} with anatomically plausible hands. Grounded realism, motivated directional physical lighting, 35mm lens perspective, sharp subject focus with clean separation, authentic textures without plastic smoothing`;
+    visualText = `Photographic YouTube thumbnail, ${cleanIdea}, the person from ${faceImg} organically embodied as the character in ${targetImg}, ${hairDesc}${beardDesc}, keeping the exact costume, pose, and framing of ${targetImg}, ${held ? `holding the ${held} naturally` : 'keeping any held objects'} with anatomically plausible hands. Grounded realism, motivated directional physical lighting, 35mm lens perspective, sharp subject focus with clean separation, authentic textures without plastic smoothing`;
   } else if (plan.taskType === 'REPLACE_OBJECT') {
-    visualText = `Photographic YouTube thumbnail, ${cleanIdea}, featuring the creator holding the physical hardware device from "${prodName}" with natural plausible hand grip, authentic chassis seams, ports, and buttons, natural composed facial expression, motivated lighting matching the scene, 35mm lens perspective, tactile matte materials`;
+    visualText = `Photographic YouTube thumbnail, ${cleanIdea}, keeping the person, pose, and background of ${targetImg}, now holding the device from ${productImg} with natural plausible hand grip, authentic chassis seams, ports, and buttons, natural composed facial expression, motivated lighting matching the scene, 35mm lens perspective, tactile matte materials`;
   } else if (plan.taskType === 'CHANGE_ENVIRONMENT') {
-    visualText = `Photographic YouTube thumbnail, ${cleanIdea}, subject from "${targetName}" naturally integrated into the architectural setting of "${envName}", subtle motivated environmental light bounce on shoulders and silhouette edges, authentic spatial depth, 35mm perspective, clean negative space`;
+    visualText = `Photographic YouTube thumbnail, ${cleanIdea}, the subject of ${targetImg} naturally integrated into the setting of ${envImg}, subtle motivated environmental light bounce on shoulders and silhouette edges, authentic spatial depth, 35mm perspective, clean negative space`;
   } else if (subject) {
-    // Midjourney takes identity from image parameters (e.g. --oref), so only text-expressible locks go here.
     const parts = [
       `Photographic YouTube thumbnail, ${cleanIdea}`,
       'compelling hero presentation with clean silhouette and immediate readability at 120px mobile thumbnail scale',
     ];
+    if (subject.identityRefs.length > 0) parts.push(`the person has the face of ${faceImg}`);
     if (subject.hasPerson) parts.push('natural composed human expression with closed mouth');
-    if (subject.productLock) parts.push('the real product with authentic industrial geometry, true proportions, and real buttons and ports');
+    if (subject.productLock) {
+      const named = subject.namedProducts || [];
+      if (subject.productRefs.length > 0) parts.push(`the exact product from ${productImg} with its authentic industrial geometry, true proportions, and real buttons and ports`);
+      else if (named.length >= 2) parts.push(`${named.join(' and ')} as distinct, correctly identified real products, each with its authentic industrial geometry and true proportions`);
+      else parts.push(`${named.length === 1 ? `the real ${named[0]}` : 'the real product'} with authentic industrial geometry, true proportions, and real buttons and ports`);
+    }
+    const titles = subject.coverTitles || [];
+    if (titles.length > 0) parts.push(`the real published game covers of ${titles.join(' and ')} front-facing and large enough to recognize`);
+    else if (subject.mentionsCovers && subject.productRefs.length === 0) parts.push('plain unbranded game cases without invented cover art');
     parts.push('motivated directional physical key light with soft shadow falloff', '35mm lens perspective', 'authentic tactile textures', 'generous negative space');
     visualText = parts.join(', ');
   } else {
     visualText = `Photographic YouTube thumbnail, ${cleanIdea}, compelling hero presentation with clean silhouette and immediate readability at 120px mobile thumbnail scale, natural composed human expression with closed mouth, motivated directional physical key light with soft shadow falloff, 35mm lens perspective, authentic tactile textures, generous negative space`;
   }
 
-  if (variant === 'NIJI_7') {
-    return `${visualText}\n\n${arFlag} --niji 7`;
+  // Exact overlay text: Midjourney renders words written inside double quotes.
+  const exactText = input.textTreatment !== 'SEM_TEXTO' ? (input.thumbnailText || '').trim().replace(/"/g, '') : '';
+  if (exactText) {
+    const where = input.reserveSpaceForText && input.reservedSpacePosition
+      ? ({ ESQUERDA: ' on the left side', DIREITA: ' on the right side', SUPERIOR: ' at the top', INFERIOR: ' at the bottom' } as const)[input.reservedSpacePosition]
+      : '';
+    visualText += `, with the words "${exactText}" written in large bold clean letters${where}, no other text`;
   }
 
-  // Midjourney V8.2: Only emit --style raw when explicitly requested by user (never as hidden default)
+  // Creator exclusions ("sem neon") as --no, single words only (Midjourney reads each word separately).
+  const noTerms = midjourneyNoTerms(subject?.exclusions || [], Boolean(exactText));
+  const noFlag = noTerms.length > 0 ? ` --no ${noTerms.join(', ')}` : '';
+
+  if (variant === 'NIJI_7') {
+    return `${visualText}\n\n${arFlag}${noFlag} --niji 7`;
+  }
+
+  // Raw only when the creator explicitly asks for it (never a hidden default).
   const explicitRawRequested = Boolean(
     input.extraInstructions &&
-    /(--style\s*raw|\bstyle\s*raw\b)/i.test(input.extraInstructions)
+    /(--style\s*raw|--raw\b|\bstyle\s*raw\b|\braw\s+mode\b|\bmodo\s+raw\b)/i.test(input.extraInstructions)
   );
 
   return explicitRawRequested
-    ? `${visualText}\n\n${arFlag} --style raw --v 8.2`
-    : `${visualText}\n\n${arFlag} --v 8.2`;
+    ? `${visualText}\n\n${arFlag}${noFlag} --raw --v 8.2`
+    : `${visualText}\n\n${arFlag}${noFlag} --v 8.2`;
+}
+
+/**
+ * Usage notes for the creator, shown next to the prompt (never pasted into it).
+ * Explains what the prompt text cannot do by itself for the chosen model: attaching
+ * reference images, real cover art, and text-rendering limits.
+ */
+export function buildModelNotes(input: CreateThumbnailInput, subject?: NewSceneSubject): string[] {
+  const notes: string[] = [];
+  const model = normalizeTargetModel(input.targetModel);
+  const refs = input.references || [];
+  const roleLabel: Record<string, string> = {
+    IMAGEM_ALVO: 'imagem-alvo', PESSOA: 'rosto', PRODUTO: 'produto', 'CENÁRIO': 'cenário',
+    ESTILO: 'estilo', 'COMPOSIÇÃO': 'composição', TIPOGRAFIA: 'tipografia', OUTRA: 'apoio'
+  };
+  const exactText = input.textTreatment !== 'SEM_TEXTO' ? (input.thumbnailText || '').trim() : '';
+
+  if (model === 'MIDJOURNEY_V8_2' && refs.length > 0) {
+    // Edit Model: up to 4 attached images; style images go to Style Reference instead.
+    const priority = ['IMAGEM_ALVO', 'PESSOA', 'PRODUTO', 'CENÁRIO', 'COMPOSIÇÃO', 'OUTRA', 'TIPOGRAFIA'];
+    const attachable = refs.filter(r => r.role !== 'ESTILO').sort((a, b) => priority.indexOf(a.role) - priority.indexOf(b.role));
+    const attach = attachable.slice(0, 4);
+    if (attach.length > 0) {
+      notes.push(`Midjourney não lê nomes de arquivo. No Imagine bar, abra o painel de imagens e arraste para "Attach to prompt" (Edit Model, até 4), nesta ordem: ${attach.map((r, i) => `${i + 1}) ${r.name} (${roleLabel[r.role] || r.role})`).join(', ')}.`);
+    }
+    if (attachable.length > 4) {
+      notes.push(`Só 4 imagens cabem no Edit Model; ficaram de fora: ${attachable.slice(4).map(r => r.name).join(', ')}.`);
+    }
+    const styleRefs = refs.filter(r => r.role === 'ESTILO');
+    if (styleRefs.length > 0) {
+      notes.push(`Use ${styleRefs.map(r => r.name).join(', ')} na seção "Style Reference", não em "Attach to prompt".`);
+    }
+  }
+  if (model === 'MIDJOURNEY_NIJI_7' && refs.length > 0) {
+    notes.push(`Niji 7 não tem o Edit Model (só V8.1/V8.2). Adicione ${refs.map(r => r.name).join(', ')} como Image Prompt: servem de inspiração, sem garantia de manter rosto ou produto. Para fidelidade, use Midjourney V8.2.`);
+  }
+  if (model.startsWith('MIDJOURNEY') && exactText) {
+    notes.push(`O texto "${exactText}" vai entre aspas duplas, que é como o Midjourney tenta escrever. Funciona melhor com palavras curtas em alfabeto latino; acentos e "Ç/Ã" podem sair errados. Confira o resultado ou aplique o texto depois no editor.`);
+  }
+  if (subject?.coverTitles?.length && subject.productRefs.length === 0) {
+    notes.push(`Sem foto das capas, o gerador pode desenhar uma versão aproximada de ${subject.coverTitles.join(' e ')}. Para capas autênticas, adicione fotos das capas como referência de Produto.`);
+  } else if (subject?.mentionsCovers && !subject.coverTitles?.length && subject.productRefs.length === 0) {
+    notes.push('Nenhum jogo foi nomeado, então as capas ficam genéricas. Para capas reconhecíveis, cite os jogos ou adicione fotos das capas como referência de Produto.');
+  }
+  return notes;
 }
 
 /**
@@ -1748,8 +1862,12 @@ export function buildFluxPrompt({
     if (subject?.productLock) {
       directDescription += subject.productRefs.length > 0
         ? ` The product matches ${refImageList(refs, subject.productRefs)} exactly: authentic industrial geometry, true proportions, real button and port layout, and factory materials, placed in this scene's own setting.${factSentence(subject.productFacts)}`
-        : ` The named product keeps its authentic industrial geometry, true proportions, real button and port layout, and instantly recognizable silhouette.${factSentence(subject.productFacts)}`;
+        : (subject.namedProducts || []).length >= 2
+        ? ` Each named product (${(subject.namedProducts || []).join(', ')}) keeps its own authentic industrial geometry, true proportions, real button and port layout, and instantly recognizable silhouette, shown as distinct, correctly identified products side by side.${factSentence(subject.productFacts)}`
+        : ` The named product${(subject.namedProducts || []).length === 1 ? ` (${(subject.namedProducts || [])[0]})` : ''} keeps its authentic industrial geometry, true proportions, real button and port layout, and instantly recognizable silhouette.${factSentence(subject.productFacts)}`;
     }
+    const coverLine = subject ? coverFidelitySentence(subject) : '';
+    if (coverLine) directDescription += ` ${coverLine}`;
   }
 
   const variantNote = variant === 'MAX' ? ' Maximum photographic detail and strict instruction following.' : '';
@@ -1783,6 +1901,9 @@ export function buildFluxPrompt({
     preservationConstraints += `Zero synthetic AI gloss, waxy smoothing, or neon rim lights.`;
   } else {
     preservationConstraints += `Zero synthetic AI gloss, waxy smoothing, neon rim lights, or unrequested domestic room clutter (no bedrooms, living rooms, sofas, desks, or lamps).`;
+  }
+  if (subject?.exclusions?.length) {
+    preservationConstraints += ` Zero ${subject.exclusions.join(', zero ')}.`;
   }
 
   const typographySection = `TYPOGRAPHY:
@@ -1883,7 +2004,7 @@ export function buildPromptFromScenePlan(
   input: CreateThumbnailInput,
   approachIndex = 0
 ): PromptBuilderResult {
-  const { videoTitle, ideaDescription, aspectRatio = '16:9', thumbnailText, fontName, reservedSpacePosition, stylePreset = 'Natural', textTreatment } = input;
+  const { aspectRatio = '16:9', thumbnailText, fontName, reservedSpacePosition, stylePreset = 'Natural', textTreatment } = input;
   const cleanIdea = resolveSceneDescription(input, Boolean(plan.targetImage));
   const arParam = aspectRatio === '9:16' ? '9:16 vertical format' : '16:9 widescreen format';
   const targetName = plan.targetImage?.name || 'personagem/imagem mestre';
@@ -2462,9 +2583,24 @@ export function interpretUserIntent(
   };
 }
 
+// Text the creator asks to be written, quoted inside the idea: `escrito "VÍDEO VIRAL" na tela`.
+// A text cue is required, so quoted names (o jogo "God of War") are not turned into overlay text.
+const IDEA_TEXT_REQUEST = /(?:escrit[oa]s?|escrevendo|texto(?:\s+exato)?|frase|letreiro|t[íi]tulo|legenda|dizendo|written|text|caption|saying)\s*:?\s*(?:"([^"\n]{1,60})"|“([^”\n]{1,60})”)/iu;
+
+/**
+ * The Texto field wins; when it is empty (and text is not turned off), exact text requested inside
+ * the idea becomes the thumbnail text, so adapters never also say "do not add overlay text".
+ */
+export function withIdeaTextRequest(input: CreateThumbnailInput): CreateThumbnailInput {
+  if ((input.thumbnailText || '').trim() || input.textTreatment === 'SEM_TEXTO') return input;
+  const m = (input.ideaDescription || '').match(IDEA_TEXT_REQUEST);
+  const text = (m?.[1] || m?.[2] || '').trim();
+  return text ? { ...input, thumbnailText: text } : input;
+}
+
 // Generate complete photographic prompt tailored for specific target models
 export function generateSimpleThumbnail(
-  input: CreateThumbnailInput,
+  rawInput: CreateThumbnailInput,
   options?: {
     researchResults?: ResearchResult | ResearchResult[] | null;
     /**
@@ -2475,6 +2611,7 @@ export function generateSimpleThumbnail(
     plan?: ScenePlan;
   }
 ): CreateThumbnailResult {
+  const input = withIdeaTextRequest(rawInput);
   const {
     videoTitle = '',
     ideaDescription = '',
@@ -2534,7 +2671,12 @@ export function generateSimpleThumbnail(
       typographyPlan: builderResult.typographyPlan,
       scenePlan: builderResult.cleanedPlan,
       outputMetadata: builderResult.outputMetadata || resolveOutputMetadata(targetModel, aspectRatio),
-      targetModel: normalizeTargetModel(targetModel)
+      targetModel: normalizeTargetModel(targetModel),
+      // Edit tasks need the same "attach these images" instructions (Midjourney cannot read file names).
+      ...(() => {
+        const editNotes = buildModelNotes(input);
+        return editNotes.length > 0 ? { modelNotes: editNotes } : {};
+      })()
     };
   }
 
@@ -2578,8 +2720,15 @@ export function generateSimpleThumbnail(
 
   // 2. PRODUTO (Regra 7: Preservar geometria, proporções, botões, analógicos, portas, tela, materiais, silhueta. Não copiar cenário, composição, estilo)
   const productRefs = (references || []).filter(r => r.role === 'PRODUTO');
+  // Named products and game covers, shared with every adapter through `subject` below.
+  const namedProducts = enrichedPlan.targetImage ? [] : extractNamedProducts(videoTitle || '', ideaDescription || '');
+  const coverTitles = enrichedPlan.targetImage ? [] : extractCoverTitles(`${videoTitle || ''} ${ideaDescription || ''}`);
+  const coversMentioned = !enrichedPlan.targetImage && mentionsGameCovers(`${videoTitle || ''} ${ideaDescription || ''}`);
+  const creatorExclusions = parseCreatorIdea(ideaDescription || '').exclusionsEn;
   if (hasProductRef || isTech) {
-    const refNames = productRefs.length > 0 ? ` (${productRefs.map(r => r.name).join(', ')})` : '';
+    const refNames = productRefs.length > 0
+      ? ` (${productRefs.map(r => r.name).join(', ')})`
+      : namedProducts.length > 0 ? ` (${namedProducts.join(', ')})` : '';
     const researchedProductFacts = (enrichedPlan.researchFacts || [])
       .filter(f => f.category === 'PRODUCT_GEOMETRY' || f.category === 'CONTROL_LAYOUT' || f.category === 'SILHOUETTE')
       .map(f => f.fact);
@@ -2589,7 +2738,7 @@ export function generateSimpleThumbnail(
       : '';
 
     locks.push(
-      `HARDWARE & PRODUCT FIDELITY (MANDATORY)${refNames}: Strictly preserve authentic industrial geometry, chassis proportions, exact physical buttons, analog sticks, ports, screen, tactile materials, and instantly recognizable silhouette.${factSuffix} Do NOT automatically copy background setting, composition, or style from the reference photo. Zero AI melting or rubbery deformation.`
+      `HARDWARE & PRODUCT FIDELITY (MANDATORY)${refNames}: Strictly preserve authentic industrial geometry, chassis proportions, exact physical buttons, analog sticks, ports, screen, tactile materials, and instantly recognizable silhouette.${factSuffix} Do NOT automatically copy background setting, composition, or style from the reference photo. Zero AI melting or rubbery deformation.${productRefs.length === 0 && namedProducts.length >= 2 ? ' Each named product is its own distinct, correctly identified product, never merged, swapped, or replaced by a generic look-alike.' : ''}`
     );
     if (hasPerson) {
       // Regra 1: Oclusão natural sem exigir 5 dedos visíveis
@@ -2597,6 +2746,14 @@ export function generateSimpleThumbnail(
         'HAND & OBJECT INTERACTION: Anatomically plausible hands with natural grip around the object, correct visible finger count according to pose and natural occlusion, no duplicated or fused fingers, no fingers intersecting the product, and physically believable hand-to-object contact. Thumbs positioned naturally on controls without chassis melting.'
       );
     }
+  }
+
+  // 2b. GAME COVERS: real published art for named titles; generic cases otherwise (never fake "recognizable" art).
+  const coverLock = coverFidelitySentence({
+    hasPerson, identityRefs: [], productLock: false, productRefs, productFacts: [], coverTitles, mentionsCovers: coversMentioned
+  });
+  if (coverLock) {
+    locks.push(`GAME COVER FIDELITY (MANDATORY): ${coverLock.replace(/^Game (?:cover fidelity|cases): /, '')}`);
   }
 
   // 3. CENÁRIO (Duas interpretações: MEU AMBIENTE vs. REFERÊNCIA DE AMBIENTE)
@@ -2675,9 +2832,16 @@ ENVIRONMENT & OPTICS: ${contextEn}. ${styleTreatment}${depthOfField}, tangible m
   };
   const chosenPos = reservedSpacePosition ? posMap[reservedSpacePosition] : 'right side';
 
+  // Real products and covers carry printed markings (brand logos, official game titles); a blanket
+  // "no logos" would contradict the product/cover fidelity locks.
+  const hasPrintedProductMarkings = hasProductRef || isTech || coverTitles.length > 0;
+  const noOverlayTextDirective = hasPrintedProductMarkings
+    ? 'Do not add overlay text, captions, or pseudo-typography. Printed markings that physically belong to the real products (brand logos, official game titles on covers) stay accurate and are never invented. Reserve clean negative space for later typography.'
+    : 'Do not generate any text, letters, logos or pseudo-typography. Reserve clean negative space for later typography.';
+
   if (textTreatment === 'SEM_TEXTO' || !thumbnailText || !thumbnailText.trim()) {
     // Regra 16: Gerar sem texto
-    promptBody += `\nTYPOGRAPHY: Do not generate any text, letters, logos or pseudo-typography. Reserve clean negative space for later typography.`;
+    promptBody += `\nTYPOGRAPHY: ${noOverlayTextDirective}`;
   } else {
     // Regra 14: Texto exato - nunca traduzir, reescrever, corrigir ou adicionar palavras
     const exactText = thumbnailText.trim();
@@ -2721,10 +2885,11 @@ ENVIRONMENT & OPTICS: ${contextEn}. ${styleTreatment}${depthOfField}, tangible m
     promptBody += `\nDIRECTOR NOTES: ${extraInstructions.trim()}`;
   }
 
+  // cleanIdea no longer contains "sem neon", so a ruled-out effect is not mistaken for a requested one.
   const activeAvoidList = buildAntiSlopAvoid(cleanIdea + ' ' + (extraInstructions || ''));
-  promptBody += `\n\nNEGATIVE / STRICTLY AVOID:\n${activeAvoidList.join(', ')}.`;
+  promptBody += `\n\nNEGATIVE / STRICTLY AVOID:\n${[...creatorExclusions, ...activeAvoidList].join(', ')}.`;
 
-  let typographyDirective = 'Do not generate any text, letters, logos or pseudo-typography. Reserve clean negative space for later typography.';
+  let typographyDirective = noOverlayTextDirective;
   if (textTreatment === 'SEM_TEXTO') {
     typographyDirective = 'Do not render any text, characters, letters, subtitles or watermark.';
   } else if (thumbnailText?.trim()) {
@@ -2742,7 +2907,11 @@ ENVIRONMENT & OPTICS: ${contextEn}. ${styleTreatment}${depthOfField}, tangible m
     productRefs,
     productFacts: (enrichedPlan.researchFacts || [])
       .filter(f => f.category === 'PRODUCT_GEOMETRY' || f.category === 'CONTROL_LAYOUT' || f.category === 'SILHOUETTE')
-      .map(f => f.fact)
+      .map(f => f.fact),
+    namedProducts,
+    coverTitles,
+    mentionsCovers: coversMentioned,
+    exclusions: creatorExclusions
   };
 
   // Model-specific adjustments rendered via central dispatcher
@@ -2758,6 +2927,8 @@ ENVIRONMENT & OPTICS: ${contextEn}. ${styleTreatment}${depthOfField}, tangible m
   // Audit prompt through Provenance Guard to strip any unsupported defaults or leakage
   const audit = auditPromptProvenance(finalPrompt, enrichedPlan, references);
   finalPrompt = audit.cleanedPrompt;
+
+  const modelNotes = buildModelNotes(input, subject);
 
   const typographyPlan = buildTypographyPlan(
     thumbnailText,
@@ -2779,7 +2950,8 @@ ENVIRONMENT & OPTICS: ${contextEn}. ${styleTreatment}${depthOfField}, tangible m
       unsupportedDetailsRemoved: audit.purged
     },
     outputMetadata: resolveOutputMetadata(targetModel, aspectRatio),
-    targetModel: normalizeTargetModel(targetModel)
+    targetModel: normalizeTargetModel(targetModel),
+    ...(modelNotes.length > 0 ? { modelNotes } : {})
   };
 }
 

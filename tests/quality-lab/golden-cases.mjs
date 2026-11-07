@@ -36,7 +36,7 @@ export const GOLDEN_CASES = [
       ideaDescription: 'Eu segurando o PS2 com as capas de GTA San Andreas e God of War reconhecíveis do lado',
       references: [ref('minha-foto', 'PESSOA')],
     },
-    expect: { person: true, productLock: true, mustInclude: ['GTA San Andreas', 'God of War'] },
+    expect: { person: true, productLock: true, mustInclude: ['GTA San Andreas', 'God of War'], coverTitles: true },
   },
   {
     id: '02_creator_in_game_world',
@@ -58,7 +58,9 @@ export const GOLDEN_CASES = [
       ideaDescription: 'Mostrando o novo headset gamer na mão.',
       references: [ref('headset-pro-x', 'PRODUTO')],
     },
-    expect: { productLock: true, mustInclude: ['headset-pro-x'] },
+    // Reference file names: in the prompt for models that map images by name; for Midjourney they
+    // must go to the attach instructions instead (Midjourney cannot read file names).
+    expect: { productLock: true, refNames: ['headset-pro-x'] },
   },
   {
     id: '04_named_products_no_reference',
@@ -69,7 +71,7 @@ export const GOLDEN_CASES = [
       ideaDescription: 'Os dois celulares lado a lado em cima de uma superfície neutra',
       references: [],
     },
-    expect: { person: false, productLock: true, mustInclude: ['iPhone 17 Pro', 'Galaxy S26 Ultra'] },
+    expect: { person: false, productLock: true, mustInclude: ['iPhone 17 Pro', 'Galaxy S26 Ultra'], distinctProducts: ['iPhone 17 Pro', 'Galaxy S26 Ultra'] },
   },
   {
     id: '05_person_holding_object',
@@ -91,7 +93,7 @@ export const GOLDEN_CASES = [
       ideaDescription: 'Eu no centro com um PS5, um Xbox Series X e um Switch 2, com o PS5 em destaque',
       references: [ref('minha-foto', 'PESSOA')],
     },
-    expect: { person: true, productLock: true, mustInclude: ['PS5'] },
+    expect: { person: true, productLock: true, mustInclude: ['PS5'], distinctProducts: ['PS5', 'Xbox Series X', 'Switch 2'] },
   },
   {
     id: '07_explicit_bedroom',
@@ -124,7 +126,7 @@ export const GOLDEN_CASES = [
       ideaDescription: 'Coloque meu rosto no personagem da imagem alvo sem mudar mais nada',
       references: [ref('personagem-alvo', 'IMAGEM_ALVO', { isTarget: true }), ref('minha-foto', 'PESSOA')],
     },
-    expect: { person: true, mustInclude: ['personagem-alvo'] },
+    expect: { person: true, refNames: ['personagem-alvo'] },
   },
   {
     id: '10_analyze_existing',
@@ -168,6 +170,32 @@ export const GOLDEN_CASES = [
     expect: { person: false },
   },
   {
+    id: '15_ps2_unnamed_covers',
+    title: 'PS2 com capas sem jogos nomeados (sem capas falsas)',
+    kind: 'create',
+    input: {
+      videoTitle: 'Minha coleção de PS2',
+      ideaDescription: 'Eu segurando um PS2 com várias capas de jogos ao lado',
+      references: [ref('minha-foto', 'PESSOA')],
+    },
+    expect: { person: true, productLock: true, genericCovers: true },
+  },
+  {
+    id: '16_exclusions_and_meta_words',
+    title: 'Exclusões e pedidos sobre a imagem fora da cena',
+    kind: 'create',
+    input: {
+      videoTitle: 'Joguei 100 horas',
+      ideaDescription: 'Eu segurando um controle de PS5, bem chamativo, sem neon e sem cara de IA',
+      references: [ref('minha-foto', 'PESSOA')],
+    },
+    expect: {
+      person: true,
+      mustNotIncludePositive: [/sem neon/i, /chamativ/i, /cara de IA/i],
+      excludedInAvoid: [/neon/i, /AI-generated look/i],
+    },
+  },
+  {
     id: '14_improve_slop_prompt',
     title: 'Melhorar prompt cheio de slop preservando o texto',
     kind: 'improve',
@@ -192,3 +220,15 @@ export const TEMPLATE_LEAK_TERMS = [
 
 // Positive slop vocabulary that should never be emitted as an instruction.
 export const POSITIVE_SLOP_TERMS = [/\b8k\b/i, /ultra[- ]detailed/i, /\bepic\b/i, /lens flare/i, /trending on artstation/i, /hyper[- ]?realistic/i, /cinematic lighting/i];
+
+// Positive (to-be-drawn) part of a prompt: drops AVOID sections and negated clauses.
+export function positiveOnly(prompt) {
+  let text = prompt.split(/NEGATIVE \/ STRICTLY AVOID:|^AVOID:|^NEGATIVE PROMPT:/m)[0];
+  text = text.replace(/\((?:no|without|zero)\b[^)]*\)/gi, ' ');
+  text = text.replace(/--no\s[^\n]*/gi, ' ');
+  return text
+    .split(/(?<=[.;!?\n])/)
+    .filter(s => !/^\s*(zero|do not|don't|no|not|never|avoid|without|absolutely no|strictly avoid)\b/i.test(s))
+    .join('')
+    .replace(/\b(?:no|without|zero|avoid(?:ing)?|never)\s[^,.;\n]*/gi, ' ');
+}

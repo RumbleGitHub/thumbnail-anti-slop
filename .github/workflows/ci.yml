@@ -1,0 +1,52 @@
+# Checks every pull request (and pushes to main) with the same commands used locally.
+# No secrets, no deployment, no auto-merge: it only reports pass/fail on the PR.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Test, typecheck, lint, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Node 24 matches the Cloudflare Workers build image; the tests need >= 22.6
+      # (--experimental-strip-types) and Next.js 16 needs >= 20.9.
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Contract and unit tests
+        run: npm test
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      # Deterministic prompt-text checks (no image generation, no API calls).
+      # Fails the job when any FAIL-level check fails.
+      - name: Quality Lab (strict)
+        run: npm run lab -- --strict

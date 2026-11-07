@@ -183,6 +183,8 @@ export interface DirectorResult {
   suggestedClarification?: string[];
   directorWarnings: string[];
   rawInterpretation?: string;
+  /** How many reference images the director actually analyzed (free director only). */
+  referencesAnalyzed?: number;
 }
 
 export interface VisualDirector {
@@ -258,8 +260,10 @@ export interface SystemAIStatus {
   localEngine: true;
   director: {
     configured: boolean;
-    provider: 'openai' | 'gemini' | 'local' | 'none';
+    provider: 'openai' | 'gemini' | 'workers-ai' | 'local' | 'none';
   };
+  /** Zero-spend hosted layer (Cloudflare Workers AI). */
+  freeAi?: { enabled: boolean; provider: 'workers-ai' | 'none'; reason?: string; remainingNeuronsEstimate?: number };
   auditor: {
     configured: boolean;
     provider: 'gemini' | 'none';

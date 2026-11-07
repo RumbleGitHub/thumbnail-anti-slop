@@ -11,7 +11,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { GOLDEN_CASES, LAB_MODELS, TEMPLATE_LEAK_TERMS, POSITIVE_SLOP_TERMS } from './golden-cases.mjs';
+import { GOLDEN_CASES, LAB_MODELS, TEMPLATE_LEAK_TERMS, POSITIVE_SLOP_TERMS, positiveOnly } from './golden-cases.mjs';
+export { positiveOnly };
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..', '..');
@@ -33,16 +34,6 @@ const BASE_INPUT = {
 
 // Removes negated instructions so "positive" checks only see what the model is
 // asked to DRAW. Conservative: anything negated is dropped.
-export function positiveOnly(prompt) {
-  let text = prompt.split(/NEGATIVE \/ STRICTLY AVOID:|^AVOID:|^NEGATIVE PROMPT:/m)[0];
-  text = text.replace(/\((?:no|without|zero)\b[^)]*\)/gi, ' ');
-  text = text.replace(/--no\s[^\n]*/gi, ' ');
-  return text
-    .split(/(?<=[.;!?\n])/)
-    .filter(s => !/^\s*(zero|do not|don't|no|not|never|avoid|without|absolutely no|strictly avoid)\b/i.test(s))
-    .join('')
-    .replace(/\b(?:no|without|zero|avoid(?:ing)?|never)\s[^,.;\n]*/gi, ' ');
-}
 
 const test = (pattern, text) => (pattern instanceof RegExp ? pattern.test(text) : text.includes(pattern));
 const label = pattern => (pattern instanceof RegExp ? pattern.source : pattern);
@@ -108,10 +99,46 @@ function evaluateCreate(c, model) {
     check(r, 'intent', 'no-invented-person', 'FAIL', !/\b(creator|a person|facial identity|interacting hands)\b/i.test(positive));
     check(r, 'coherence', 'no-human-attributes-without-person', 'WARN', !/(skin texture|human expression|finger count)/i.test(positive));
   }
-  // Midjourney receives reference images as parameters (--oref/--cref), so a
-  // missing textual identity instruction is only a warning there.
-  if (e.person === true) check(r, 'reference', 'identity-guidance-present', model.startsWith('MIDJOURNEY') ? 'WARN' : 'FAIL', /(facial identity|identity source|for facial identity|PESSOA|PERSON)/i.test(prompt));
+  // Midjourney V8.2 takes reference images attached in the Imagine bar (Edit Model), so the
+  // prompt names "the attached face photo" and the file goes to modelNotes. Only checked when
+  // the case has a PESSOA reference (a face to attach).
+  const isMJ = model.startsWith('MIDJOURNEY');
+  const hasPersonRef = (input.references || []).some(ref => ref.role === 'PESSOA');
+  if (e.person === true && hasPersonRef) {
+    check(r, 'reference', 'identity-guidance-present', 'FAIL', isMJ
+      ? /attached face photo|attached target image/i.test(prompt)
+      : /(facial identity|identity source|for facial identity|PESSOA|PERSON)/i.test(prompt));
+  }
   if (e.productLock) check(r, 'product', 'product-fidelity-lock', 'FAIL', /(PRODUCT FIDELITY|industrial geometry|hardware geometry|product geometry)/i.test(prompt));
+
+  // Reference names: meaningful inside prompts that map images by name (OpenAI, Google, FLUX,
+  // GERAL). Midjourney cannot read file names: they must be in the attach instructions instead.
+  const notes = (out.modelNotes || []).join(' ');
+  for (const name of e.refNames || []) {
+    if (isMJ) {
+      check(r, 'reference', `mj-attach-instruction:${name}`, 'FAIL', notes.includes(name) && /Attach to prompt/.test(notes));
+      check(r, 'reference', `mj-no-filename-in-prompt:${name}`, 'FAIL', !prompt.includes(name));
+    } else {
+      check(r, 'reference', `ref-named:${name}`, 'FAIL', prompt.includes(name));
+    }
+  }
+
+  // Comparisons: every named product stays named; no collapse into one generic object.
+  if (e.distinctProducts) {
+    for (const p of e.distinctProducts) check(r, 'product', `distinct:${p}`, 'FAIL', prompt.includes(p));
+    check(r, 'product', 'no-generic-single-object', 'FAIL', !/\b(?:Smartphone|Primary tech gadget) positioned\b/.test(prompt));
+  }
+  // Game covers: named titles must be the real art; unnamed covers must stay generic.
+  if (e.coverTitles) check(r, 'product', 'cover-art-fidelity', 'FAIL', /real published (?:game )?cover/i.test(prompt));
+  if (e.genericCovers) {
+    check(r, 'product', 'no-fake-recognizable-covers', 'FAIL', /(unbranded|without invented|do not invent)/i.test(prompt));
+    check(r, 'product', 'no-iconic-cover-claim', 'FAIL', !/iconic hero game covers|recognizable hero game covers/i.test(prompt));
+  }
+  // Creator exclusions ("sem neon") must reach the avoid/constraint part of the prompt.
+  for (const p of e.excludedInAvoid || []) {
+    const negativePart = prompt.slice(positiveOnly(prompt).length) + prompt.split('\n').filter(l => /^(zero|no|avoid|excluded)/i.test(l.trim()) || /Excluded by the creator|Zero /.test(l)).join(' ');
+    check(r, 'coherence', `excluded:${label(p)}`, isMJ ? 'WARN' : 'FAIL', test(p, negativePart) || /--no\b/.test(prompt) && test(p, prompt));
+  }
 
   if (e.exactText) {
     check(r, 'typography', 'exact-text-verbatim', 'FAIL', prompt.includes(e.exactText));
@@ -119,7 +146,7 @@ function evaluateCreate(c, model) {
     check(r, 'typography', 'no-text-when-none-given', 'WARN', !/only visible text must read/i.test(prompt));
   }
 
-  return { prompt, direction: out.direction, typographyPlan: out.typographyPlan, approachTitle: out.approachTitle, words: words(prompt), checks: r };
+  return { prompt, modelNotes: out.modelNotes, direction: out.direction, typographyPlan: out.typographyPlan, approachTitle: out.approachTitle, words: words(prompt), checks: r };
 }
 
 function evaluateImprove(c) {

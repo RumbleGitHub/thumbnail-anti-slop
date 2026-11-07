@@ -6,6 +6,7 @@ import type {
   ThemeContext
 } from '../../types/simple.ts';
 import { requestIncludesPerson } from './personDetection.ts';
+import { extractNamedProducts, extractCoverTitles, mentionsGameCovers, featuredProduct } from './productNames.ts';
 
 // Helper for boundary matching
 function matchBoundary(text: string, pattern: string): boolean {
@@ -105,6 +106,15 @@ export function planSpatialHierarchy(
   // 3. IDENTIFY PRIMARY OBJECT & HERO SUPPORTING ITEMS
   let primaryObject: string | undefined = plan.productSource?.name;
 
+  // Two or more named products ("iPhone 17 Pro vs Galaxy S26 Ultra", "PS5, Xbox Series X e Switch 2")
+  // keep their identities instead of collapsing into one generic "Smartphone"/"console".
+  const namedProducts = plan.productSource ? [] : extractNamedProducts(videoTitle, ideaDescription);
+  const multiProduct = namedProducts.length >= 2;
+  const featured = multiProduct ? featuredProduct(userText, namedProducts) : undefined;
+  if (multiProduct) {
+    primaryObject = featured || namedProducts.join(' and ');
+  }
+
   if (!primaryObject) {
     if (matchBoundary(userText, 'playstation\\s*2|ps2')) {
       primaryObject = 'PlayStation 2 console';
@@ -130,13 +140,33 @@ export function planSpatialHierarchy(
   // 4. DETECT MULTI-ITEM / GAME COVER / PRODUCT INVENTORY SCENARIOS
   const hasGameCoversOrInventory = /(?:covers?|capas?|jogos?|game\s*boxes?|box\s*art|cartridges?|fitas?|dvds?|consoles?|m[íi]dia\s*f[íi]sica|cases?|prateleira|shelf|shelves|inventory|store|loja|dezenas|dozens)/i.test(userText);
   const hasMultipleAccessories = /(?:10\s*different|v[áa]rios|dezenas|m[úu]ltiplos|cables|keyboards\s*and\s*headsets|secondary\s*gaming\s*mice)/i.test(userText);
+  // Covers: named titles are shown as the real art; unnamed covers are never presented as recognizable.
+  const coverTitles = extractCoverTitles(userText);
+  const coversAreHero = coverTitles.length > 0 || mentionsGameCovers(userText);
+  // Shelves/store only when the creator asked for them.
+  const mentionsShelves = /(?:prateleira|shelf|shelves|estante|store|loja|cole[çc][ãa]o|collection|inventory)/i.test(userText);
 
   let heroSupportingItems: string[] | undefined;
   let secondaryElements: string[] | undefined;
 
-  if (hasGameCoversOrInventory) {
-    heroSupportingItems = ['2–4 recognizable hero game covers in clear immediate proximity to console'];
-    secondaryElements = ['Remaining background game inventory and store shelves subordinated with natural optical falloff'];
+  if (multiProduct && !coversAreHero) {
+    heroSupportingItems = featured
+      ? namedProducts.filter(p => p !== featured).map(p => `${p} clearly recognizable beside ${featured}`)
+      : undefined;
+    secondaryElements = ['Authentic environment elements subordinated in background without clutter'];
+  } else if (coversAreHero) {
+    heroSupportingItems = coverTitles.length > 0
+      ? [`The named game covers (${coverTitles.join(', ')}) front-facing in clear immediate proximity to the console`]
+      : ['Plain game cases in immediate proximity to the console, without invented cover art'];
+    secondaryElements = mentionsShelves
+      ? ['Remaining game collection and shelves subordinated with natural optical falloff']
+      : ['Authentic environment elements subordinated in background without clutter'];
+  } else if (hasGameCoversOrInventory) {
+    // No titles named: hero cases stay generic instead of inventing recognizable cover art.
+    heroSupportingItems = ['2–4 hero game cases in clear immediate proximity to the console, without invented recognizable cover art'];
+    secondaryElements = mentionsShelves
+      ? ['Remaining inventory and shelves subordinated with natural optical falloff']
+      : ['Authentic environment elements subordinated in background without clutter'];
   } else if (hasMultipleAccessories) {
     heroSupportingItems = ['Selected hero accessory positioned in immediate focus'];
     secondaryElements = ['Secondary mice, cables, keyboards and peripherals subordinated in background falloff'];
@@ -168,7 +198,11 @@ export function planSpatialHierarchy(
     ? `${primaryObject} and interacting hands positioned in immediate foreground priority`
     : `${primarySubject} framed prominently in immediate foreground`;
 
-  const overlapStrategy = !hasPerson
+  const overlapStrategy = multiProduct && !coversAreHero
+    ? featured
+      ? `${featured} largest and forward; the other named products beside it, each fully recognizable and never overlapping its distinctive features`
+      : 'Named products side by side at true relative scale, neither occluding the other'
+    : !hasPerson
     ? heroSupportingItems
       ? 'Hero game covers angled cleanly alongside the console in the foreground without blocking its controls'
       : 'Natural depth layering: primary object angled forward in the foreground; secondary background recedes'
@@ -189,10 +223,21 @@ export function planSpatialHierarchy(
     : 'Ensure primary subject and product maintain bold silhouettes readable at 120px mobile thumbnail scale.';
 
   // 10. COMPOSE PHOTOGRAPHIC COMPOSITION DIRECTIVE
-  const coversDirective = heroSupportingItems ? '2-4 iconic hero game covers clearly readable in immediate proximity. ' : '';
+  const coversDirective = coversAreHero
+    ? coverTitles.length > 0
+      ? `The named game covers (${coverTitles.join(', ')}) front-facing and large enough to recognize at 120px, in immediate proximity. `
+      : 'Plain game cases in immediate proximity, without invented recognizable cover art. '
+    : '';
   const secondaryDirective = secondaryElements ? `${secondaryElements.join('. ')}. ` : '';
+  const productUnit = multiProduct && !coversAreHero
+    ? featured
+      ? `${featured} as the largest hero product with ${namedProducts.filter(p => p !== featured).join(' and ')} clearly recognizable beside it`
+      : `${namedProducts.join(' and ')} side by side as distinct, equally prominent hero products`
+    : undefined;
   const focalUnit = hasPerson
-    ? `${primarySubject} and ${primaryObject || 'hero object'} positioned in immediate foreground proximity`
+    ? `${primarySubject} and ${productUnit || primaryObject || 'hero object'} positioned in immediate foreground proximity`
+    : productUnit
+    ? `${productUnit} in the immediate foreground`
     : `${primaryObject || primarySubject} positioned large in the immediate foreground`;
   const compositionDirective = `Tight medium-close framing establishing clear spatial hierarchy. ${focalUnit} with enlarged scale for instant 120px mobile thumbnail legibility. ${coversDirective}${secondaryDirective}Zero artificial relighting or fake glow.`;
 

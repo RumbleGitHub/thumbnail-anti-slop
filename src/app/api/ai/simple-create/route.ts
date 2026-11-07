@@ -8,6 +8,7 @@ import {
   planPhysicalInteraction,
   planSpatialHierarchy,
   mergeComplementaryPlan,
+  withIdeaTextRequest,
   type ResearchResult
 } from '@/lib/simpleEngine/engine';
 import {
@@ -25,12 +26,12 @@ export async function POST(req: NextRequest) {
   let parsedBody: CreateThumbnailInput | null = null;
   try {
     const rawBody = await req.json();
-    const body: CreateThumbnailInput = {
+    const body: CreateThumbnailInput = withIdeaTextRequest({
       ...rawBody,
       ideaDescription: rawBody.ideaDescription || rawBody.idea || '',
       videoTitle: rawBody.videoTitle || '',
       references: rawBody.references || []
-    };
+    });
     parsedBody = body;
 
     // 1. LOCAL INITIAL CLASSIFICATION & BASELINE SCENE PLAN
@@ -42,7 +43,10 @@ export async function POST(req: NextRequest) {
     let directorLatencyMs: number | undefined;
 
     const hasImages = (body.references || []).length > 0;
-    const shouldInvokeDirector = Boolean(director && director.isConfigured() && hasImages);
+    // The creator's "IA na nuvem" switch governs every external AI provider (free or paid):
+    // without it, no reference image is forwarded to any AI service.
+    const cloudAllowed = (body as { allowCloudAi?: boolean }).allowCloudAi === true;
+    const shouldInvokeDirector = Boolean(director && director.isConfigured() && hasImages && cloudAllowed);
 
     if (shouldInvokeDirector && director) {
       const dirStart = Date.now();
@@ -159,6 +163,19 @@ export async function POST(req: NextRequest) {
       },
       outputMetadata: engineResult.outputMetadata,
       targetModel: engineResult.targetModel,
+      // Free reference checks ("product looks like: ...") are shown with the other usage notes.
+      // Who helped: the prompt itself always comes from the deterministic engine.
+      aiAssist: directorResult
+        ? {
+            provider: dirProvider,
+            referencesChecked: directorResult.referencesAnalyzed ?? (body.references || []).length,
+            findings: directorResult.visualFacts.length + (directorResult.directorWarnings?.length || 0),
+            fallbackReason: directorResult.rawInterpretation?.match(/fallback: ([\w-]+)/)?.[1],
+          }
+        : { provider: 'none' },
+      modelNotes: dirProvider === 'workers-ai' && directorResult?.directorWarnings?.length
+        ? [...(engineResult.modelNotes || []), ...directorResult.directorWarnings]
+        : engineResult.modelNotes,
       // Development debug data (Section 31 & Complementary Trace)
       ...(process.env.NODE_ENV !== 'production' || req.headers.get('x-debug-trace') === 'true'
         ? {

@@ -47,3 +47,11 @@ graphify-out/
 
 # quality-lab scratch output (regenerated on every run)
 /tests/quality-lab/reports/latest.*
+
+# OpenNext
+.open-next
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example

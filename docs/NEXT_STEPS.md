@@ -39,13 +39,52 @@ Without a person the planner frames the object alone ("Smartphone positioned lar
 with no hands, face or "Creator" tier; person scenes are unchanged. The lab check now catches any "creator" or
 "interacting hands" in positive text: complementary mode showed 2 hidden failures (phones, keyboard), now 0.
 
+Fixed in cycle 6 (branch `feat/cycle6-fidelity-ci`):
+- **Midjourney** follows docs.midjourney.com (checked 2026-11-07): V8.1/V8.2 references go through the Edit
+  Model ("Attach to prompt", max 4; `--oref`/`--cref` are V7-only), Niji 7 only has Image Prompts. Prompts no
+  longer contain file names; `modelNotes` (shown under the prompt, never pasted) says what to attach and in
+  which order. Exact text in double quotes with its accent limitation explained; `--raw`; single-word `--no`.
+- **Game covers**: named titles = real published art in every adapter; unnamed covers stay generic; no invented
+  store shelves; product prompts no longer forbid real logos/printed titles.
+- **Prompt language**: `parseCreatorIdea` moves known exclusions ("sem neon") and meta words ("chamativo")
+  out of the scene into each adapter's avoid list ("sem neon" also no longer removed neon from the avoid list).
+  The scene itself is still the creator's Portuguese text (no machine translation).
+- **Comparisons**: 2+ named products stay distinct in planner and adapters (PS5 > Xbox Series X > Switch 2 when a
+  feature is requested); aliases deduplicated; single-product scenes unchanged.
+- CI (`.github/workflows/ci.yml`), committed Wrangler/OpenNext config for Worker Previews
+  (`docs/CLOUDFLARE_DEPLOY.md`), real-image kit (`npm run lab:kit`), minimalist IMPROVE/ANALYZE.
+Lab: 0 FAIL (engine, route, complementary), 1 WARN (Midjourney `--no` cannot express "AI look").
+
 Open, highest value first:
-1. **Midjourney has no text instruction for exact overlay text**, and reference images are not mapped to
-   `--oref`/image prompts (reference names in text mean nothing to it). These are the 2 remaining lab failures.
-2. **No game-cover fidelity instruction** for the flagship "PS2 + recognizable covers" request.
-3. **Raw Portuguese idea text, including meta words ("sem cara de IA", "chamativo"), is pasted into English prompts.**
-4. The spatial planner names one generic object ("Smartphone") for a two-item comparison.
-5. Touch targets of 26-30px on mobile (header tabs, history, secondary buttons).
+1. **No real-image evidence yet.** Run `tests/quality-lab/reports/real-image-kit.md` on the main models.
+2. **Analyze does not look at the image in production** (no provider key). See "Enabling real visual
+   analysis" below.
+3. Cloudflare: production branch is a feature branch; dashboard commands must change when the config is merged
+   (`docs/CLOUDFLARE_DEPLOY.md`, section 3).
+4. Scene text stays in Portuguese inside English prompts (only exclusions/meta words are separated).
+5. Archetype wording such as "The creator holding the handheld device" for a three-console scene, and "analog
+   sticks" in the GERAL hardware lock for phones (pre-existing template text).
+
+### Enabling real visual analysis (proposal, not activated)
+
+The integration already exists: `/api/ai/simple-analyze` sends the image to OpenAI (`OPENAI_MODEL`, default
+`gpt-4o`) or Gemini (`GEMINI_MODEL`, default `gemini-2.5-flash`), chosen by `AI_DIRECTOR_PROVIDER`
+(`auto` = OpenAI if its key exists, else Gemini, else local). Simplest reliable setup:
+
+1. Create one API key (Gemini or OpenAI) under a billing account you control.
+2. Cloudflare → Worker → Settings → Variables and Secrets → Production: add it as a **secret**
+   (`GEMINI_API_KEY` or `OPENAI_API_KEY`); optionally pin `AI_DIRECTOR_PROVIDER` and the model variable
+   (the defaults above may be outdated; check the provider's current vision model).
+3. Previews do not inherit secrets: add a separate, low-limit key there only if previews should analyze too.
+
+- **Cost**: one vision call per analysis (one image plus about 1-2k text tokens). Check the provider's current
+  pricing page and set a monthly spending limit on the key before enabling.
+- **Privacy**: the thumbnail and title are sent to the provider. Free tiers may allow the provider to use
+  inputs to improve its products; use a paid tier/key if that matters, and say so in the UI.
+- **Side effect**: the same keys enable the visual director in CREATE (reference analysis), so CREATE output
+  changes too. Test with the real-image kit before and after.
+- **Fallback**: unchanged. Without a key, or on any provider error, the local engine answers and the UI shows
+  "Análise genérica — a imagem não foi examinada".
 
 ---
 

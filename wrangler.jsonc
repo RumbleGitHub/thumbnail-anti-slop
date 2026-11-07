@@ -1,0 +1,72 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	// Custom entry: the OpenNext handler (.open-next/worker.js) + the FreeAiBudget Durable Object.
+	"main": "cloudflare-worker.ts",
+	"name": "thumbnail-anti-slop",
+	// Same date the production Worker was first deployed with (autoconfig, 2026-11-04).
+	"compatibility_date": "2026-11-04",
+	"compatibility_flags": [
+		"nodejs_compat",
+		"global_fetch_strictly_public"
+	],
+	"assets": {
+		"directory": ".open-next/assets",
+		"binding": "ASSETS"
+	},
+	"services": [
+		{
+			// Self-reference service binding, the service name must match the worker name
+			// see https://opennext.js.org/cloudflare/caching
+			"binding": "WORKER_SELF_REFERENCE",
+			"service": "thumbnail-anti-slop"
+		}
+	],
+	"images": {
+		// Enable image optimization
+		// see https://opennext.js.org/cloudflare/howtos/image
+		"binding": "IMAGES"
+	},
+	"observability": {
+		"enabled": true
+	},
+	// Workers AI: zero-spend hosted AI (no API key; 10,000 Neurons/day free; on the Workers Free plan
+	// calls beyond that fail instead of being billed). See docs/FREE_AI.md.
+	"ai": {
+		"binding": "AI"
+	},
+	// Global daily Neuron ledger shared by every Worker instance (SQLite Durable Object, Free plan).
+	"durable_objects": {
+		"bindings": [
+			{ "name": "FREE_AI_BUDGET", "class_name": "FreeAiBudget" }
+		]
+	},
+	"migrations": [
+		{ "tag": "v1-free-ai-budget", "new_sqlite_classes": ["FreeAiBudget"] }
+	],
+	"vars": {
+		// "workers-ai" turns the free layer on; any other value (or removing it) turns it off.
+		"FREE_AI_PROVIDER": "workers-ai",
+		// App-side daily cap (estimated Neurons per isolate), always below the 10,000 free allocation.
+		"FREE_AI_DAILY_NEURONS": "8000",
+		"FREE_AI_MAX_REQUESTS_PER_MINUTE": "20"
+	},
+	// Worker Previews (wrangler preview): previews do NOT inherit production vars or bindings.
+	// https://developers.cloudflare.com/workers/previews/configuration/
+	"previews": {
+		"ai": {
+			"binding": "AI"
+		},
+		// Each Preview gets its own Durable Object namespace, so preview usage has its own ledger.
+		"durable_objects": {
+			"bindings": [
+				{ "name": "FREE_AI_BUDGET", "class_name": "FreeAiBudget" }
+			]
+		},
+		"vars": {
+			"FREE_AI_PROVIDER": "workers-ai",
+			// Smaller cap so test branches cannot use up the shared daily allocation.
+			"FREE_AI_DAILY_NEURONS": "2000",
+			"FREE_AI_MAX_REQUESTS_PER_MINUTE": "10"
+		}
+	}
+}
