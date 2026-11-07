@@ -25,3 +25,13 @@ content, then confirm visually with real generations.
 
 To turn creator feedback into a regression case ("wrong console", "invented background", "wrong text"),
 add a case to `golden-cases.mjs` with the input and a `mustInclude` / `mustNotIncludePositive` expectation.
+
+## Real-image validation kit
+
+`npm run lab:kit -- --baseline=<older checkout>/src/lib/simpleEngine/engine.ts` writes
+`reports/real-image-kit.md`: six representative cases (PS2 covers, feijoada, iPhone vs Galaxy,
+face identity, person holding a product with exact text, locked TARGET image) with BEFORE/AFTER
+prompts for identical inputs and model settings, the reference photos to prepare, the model notes,
+and a blind 0/1/2 scoring sheet for seven defects (wrong product, fake cover, identity, artificial
+light, physical interaction, weak composition, wrong text). It generates no images and calls no
+API: the committed file is a procedure, not a result.
