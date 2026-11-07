@@ -169,6 +169,31 @@ export function buildAntiSlopAvoid(userText: string): string[] {
   });
 }
 
+const HUMAN_AVOID_TERM = /\b(face|faces|facial|skin|beauty|eyes|teeth|expression|mouth|identity|age change|hair|beard|jaw|skull|fingers?|digits|hands?|grip|arm pose|body proportion)\b/i;
+// Already covered by a more specific term earlier in the same AVOID list.
+const REDUNDANT_AVOID = new Set(['plastic skin', 'waxy skin texture', 'artificial beauty filter jaw slimming', 'no duplicated or fused fingers']);
+
+/**
+ * AVOID list hygiene: exact duplicates and redundant variants removed, "no " prefixes dropped
+ * (the list is already a negative), and human terms removed when no person is in the scene.
+ */
+export function dedupeAvoid(items: string[], noPeople: boolean): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const hasPlasticWaxy = items.includes('plastic waxy skin');
+  for (const raw of items) {
+    const item = raw.replace(/^no\s+/i, '').trim();
+    if (!item) continue;
+    if (noPeople && HUMAN_AVOID_TERM.test(item)) continue;
+    if (hasPlasticWaxy && REDUNDANT_AVOID.has(raw)) continue;
+    const key = item.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 // Helper to detect gaming/tech/hardware in text
 export function detectTechHardware(text: string): boolean {
   const pattern = /(legion|steam\s*deck|rog\s*ally|switch|gameboy|console|\bps[1-5]\b|\bpsp\b|ps\s*vita|dualsense|dualshock|headset|celular|joystick|controlador|videogame|gpu|rtx|playstation|xbox|nintendo|iphone|macbook|ipad|android|smartphone|pc\s*gamer|computador|setup|teclado|mouse|hardware|placa\s*de\s*v[íi]deo|intel|amd|ryzen|gadget|monitor|notebook|laptop|chip|circuito|bancada|teardown)/i;
@@ -1424,10 +1449,18 @@ export function buildOpenAIStructuredPrompt({
     : `Motivated directional key light with natural shadow falloff. Zero neon rim light or synthetic glow.`;
 
   // 10. AVOID (creator exclusions such as "sem neon" first, in English)
-  const creatorAvoid = subject?.exclusions?.length ? `${subject.exclusions.join(', ')}, ` : '';
-  const avoidList = creatorAvoid + (isSunburst
-    ? `face swap, face paste, flat frontal face pasted on angled head, distorted skull geometry, plastic waxy skin, beauty filter jaw slimming, open mouth screaming shock face, deformed hands, extra fingers, duplicated digits, intersecting hardware, floating embers, flying sparks, neon blue-purple wash, unmotivated rim light, domestic clutter (sofas, bedroom lamps, desks unless requested), ${CORE_ANTI_SLOP_AVOID.slice(0, 18).join(', ')}.`
-    : `face swap, face paste, flat face overlay, plastic skin, open mouth screaming face, extra fingers, neon glow, unmotivated rim light, domestic clutter, ${CORE_ANTI_SLOP_AVOID.slice(0, 12).join(', ')}.`);
+  const avoidItems = [
+    ...(subject?.exclusions || []),
+    ...(isSunburst
+      ? ['face swap', 'face paste', 'flat frontal face pasted on angled head', 'distorted skull geometry', 'plastic waxy skin', 'beauty filter jaw slimming', 'open mouth screaming shock face', 'deformed hands', 'extra fingers', 'duplicated digits', 'intersecting hardware', 'floating embers', 'flying sparks', 'neon blue-purple wash', 'unmotivated rim light', 'domestic clutter (sofas, bedroom lamps, desks unless requested)', ...CORE_ANTI_SLOP_AVOID.slice(0, 18)]
+      : ['face swap', 'face paste', 'flat face overlay', 'plastic skin', 'open mouth screaming face', 'extra fingers', 'neon glow', 'unmotivated rim light', 'domestic clutter', ...CORE_ANTI_SLOP_AVOID.slice(0, 12)]),
+  ];
+  // No person in the scene and no person/target reference: face, skin, hand and identity
+  // warnings only add noise (and name faces in a product shot).
+  const noPeople = Boolean(subject && !subject.hasPerson) && !references.some(r => r.role === 'PESSOA' || r.role === 'IMAGEM_ALVO');
+  // ...and the product-fidelity terms take that place (wrong geometry, buttons, ports, logo, silhouette).
+  if (noPeople) avoidItems.push(...CORE_ANTI_SLOP_AVOID.slice(20, 30).filter(t => t !== 'incorrect analog sticks' || /controle|controller|console|ps\d|playstation|xbox|switch|deck|ally|legion/i.test(`${input.videoTitle} ${input.ideaDescription}`)));
+  const avoidList = `${dedupeAvoid(avoidItems, noPeople).join(', ')}.`;
 
   return `GOAL:
 ${goal}

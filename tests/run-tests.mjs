@@ -3239,4 +3239,23 @@ console.log('\n41. Testando orçamento global de Neurons sob concorrência (ledg
   for (const k of Object.keys(process.env)) if (!(k in savedEnv)) delete process.env[k];
   Object.assign(process.env, savedEnv);
 }
+// 42. OpenAI AVOID list hygiene (found in the real-image kit, case 04: product comparison).
+console.log('\n42. Testando a lista AVOID do OpenAI (sem pessoa, sem duplicatas, sem "no " dentro de AVOID)...');
+{
+  const { generateSimpleThumbnail } = await import('../src/lib/simpleEngine/engine.ts');
+  const avoidOf = input => generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: 'OPENAI_GPT_IMAGE_2_5_SUNBURST', ...input }).finalPrompt.split('\nAVOID:\n')[1];
+  const product = avoidOf({ videoTitle: 'iPhone 17 Pro vs Galaxy S26 Ultra', ideaDescription: 'Os dois celulares lado a lado' });
+  assert.ok(!/face|skin|beard|finger|identity/i.test(product), 'Produto sem pessoa: AVOID sem termos de rosto/mãos');
+  assert.match(product, /wrong geometry, incorrect buttons, wrong ports/, 'Produto sem pessoa: termos de fidelidade do produto');
+  assert.ok(!/analog sticks/.test(product), 'Celular: sem "analog sticks"');
+  const person = avoidOf({ videoTitle: 'Testei o PS2', ideaDescription: 'eu segurando o PS2', references: [cycle6Ref('eu', 'PESSOA')] });
+  assert.match(person, /face swap/, 'Com pessoa: proteções de rosto mantidas');
+  assert.match(person, /fingers intersecting the product/, 'Com pessoa: proteções de mãos mantidas');
+  for (const list of [product, person]) {
+    const items = list.replace(/\.$/, '').split(/,\s*(?![^(]*\))/);
+    assert.equal(new Set(items).size, items.length, 'AVOID sem itens repetidos');
+    assert.ok(!items.some(i => /^no\s/.test(i)), 'AVOID sem "no " (negação dupla)');
+  }
+  console.log('  ✓ TEST 42: AVOID do OpenAI sem ruído de rosto em fotos de produto, sem duplicatas e sem negação dupla.');
+}
 console.log('\n✅ TODOS OS TESTES PASSARAM COM SUCESSO! VALIDAÇÃO CONCLUÍDA.');
