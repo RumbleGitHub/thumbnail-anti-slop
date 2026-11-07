@@ -929,7 +929,7 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowCloudAi = fal
                     value={ref.role}
                     onChange={e => handleRoleChange(ref.id, e.target.value as SimpleReferenceRole)}
                     aria-label={`Papel da referência ${ref.name}`}
-                    className={`h-9 w-full appearance-none rounded-lg border border-zinc-800 bg-zinc-950 pl-3 pr-8 text-[13px] font-semibold text-amber-300 transition-colors hover:border-zinc-700 focus:border-amber-500/70 focus:outline-none [&>option]:text-zinc-200`}
+                    className={`h-10 sm:h-9 w-full appearance-none rounded-lg border border-zinc-800 bg-zinc-950 pl-3 pr-8 text-[13px] font-semibold text-amber-300 transition-colors hover:border-zinc-700 focus:border-amber-500/70 focus:outline-none [&>option]:text-zinc-200`}
                   >
                     {ALL_ROLES.map(role => (
                       <option key={role} value={role}>
