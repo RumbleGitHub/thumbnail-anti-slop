@@ -99,7 +99,8 @@ function tidy(text: string): string {
     .replace(/([,;])\s*(?=[,;.!?]|$)/g, '')
     .replace(/(^|[,;]\s*)e\s+(?=[,;.!?]|$)/g, '$1')
     .replace(/\s+e\s*([,;.!?]|$)/g, '$1')
-    .replace(/^[\s,;.e]+(?=\p{L})/u, '')
+    // Leading punctuation or a dangling "e " left by a removed exclusion; never the "e" of a word ("eu").
+    .replace(/^(?:[\s,;.]|e\s)+(?=\p{L})/u, '')
     .replace(/\(\s*\)/g, '')
     .replace(/\s{2,}/g, ' ')
     .replace(/[\s,;]+$/g, '')

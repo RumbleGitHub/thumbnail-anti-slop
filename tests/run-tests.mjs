@@ -2924,6 +2924,9 @@ console.log('\n38. Testando separação de cena, exclusões e pedidos sobre a im
     ['Eu sem camisa na praia, sem setas vermelhas, viral', 'Eu sem camisa na praia', ['arrows']],
     ['Um prato de feijoada fumegante visto de cima, sem fumaça exagerada', 'Um prato de feijoada fumegante visto de cima, sem fumaça exagerada', []],
     ['Quero algo sem cara de IA e sem fundo branco', 'Quero algo sem fundo branco', ['synthetic AI-generated look']],
+    // Regression (found on the Cloudflare Preview): lowercase "eu" must not lose its "e".
+    ['eu segurando o console antigo na mesa', 'eu segurando o console antigo na mesa', []],
+    ['sem neon, e eu segurando o console', 'eu segurando o console', ['neon lighting']],
   ];
   for (const [idea, scene, exclusions] of cases) {
     const p = parseCreatorIdea(idea);
