@@ -36,6 +36,7 @@ import { prepareImageForUpload } from '@/lib/client/imageTools';
 import { describeAiFallback } from '@/lib/ai/free/reasons';
 import {
   focusRing,
+  eyebrow,
   fieldLabel,
   subLabel,
   fieldSurface,
@@ -44,8 +45,16 @@ import {
   secondaryIdle,
   secondaryActive,
   panelSurface,
+  insetSurface,
+  sectionTitle,
+  primaryButton,
+  primaryReady,
+  primaryBusy,
+  primaryIdle,
+  skeletonBar,
   segmentClass
 } from './ui';
+import { WorkspaceHeader } from './WorkspaceHeader';
 
 const ALL_ROLES: SimpleReferenceRole[] = [
   'PESSOA',
@@ -471,152 +480,312 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowCloudAi = fal
   const ctaState: 'loading' | 'ready' | 'empty' = isLoading ? 'loading' : canGenerate ? 'ready' : 'empty';
   const AspectIcon = aspectRatio === '9:16' ? RectangleVertical : RectangleHorizontal;
 
+  const ctaClass = `${primaryButton} w-full ${ctaState === 'ready' ? primaryReady : ctaState === 'loading' ? primaryBusy : primaryIdle}`;
+
   return (
-    <div className="mx-auto max-w-5xl space-y-8 py-2 sm:py-4">
-      {/* 1. Título do vídeo */}
-      <div className="space-y-3">
-        <label htmlFor="create-title" className={fieldLabel}>
-          Título do vídeo
-        </label>
-        <input
-          id="create-title"
-          type="text"
-          value={videoTitle}
-          onChange={e => setVideoTitle(e.target.value)}
-          onKeyDown={handleSubmitShortcut}
-          placeholder="Ex: Troquei o Windows do meu Legion Go"
-          className={`${fieldSurface} h-14 px-5 text-base`}
-        />
-      </div>
+    <div className="mx-auto max-w-6xl space-y-10 pb-28 pt-2 sm:pb-10 sm:pt-6">
+      <WorkspaceHeader
+        step="01 · Criar"
+        title="Da ideia ao prompt de thumbnail"
+        lead="Descreva a cena como falaria com uma pessoa. O motor transforma isso em direção visual e em um prompt pronto para colar no seu gerador."
+      />
 
-      {/* 2. Ideia (focal point) */}
-      <div className="space-y-3">
-        <div className="flex items-baseline justify-between gap-3">
-          <label htmlFor="create-idea" className={fieldLabel}>
-            O que você imagina?
-          </label>
-          <span className="hidden text-sm text-zinc-500 sm:inline">Descreva em linguagem natural</span>
-        </div>
-        <textarea
-          id="create-idea"
-          ref={ideaRef}
-          rows={5}
-          value={ideaDescription}
-          onChange={e => setIdeaDescription(e.target.value)}
-          onKeyDown={handleSubmitShortcut}
-          placeholder={'Descreva sua thumbnail como falaria com uma pessoa...\nEx: o Legion Go ligado na minha mão, expressão autêntica, sem neon.'}
-          className={`${fieldSurface} block min-h-[148px] resize-y px-5 py-4 text-base leading-relaxed`}
-        />
-
-        {contextualChips.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-zinc-500">Para ficar mais fiel:</span>
-            {contextualChips.map(chip => (
-              <button
-                key={chip}
-                type="button"
-                onClick={openFilePicker}
-                className={`h-10 sm:h-8 rounded-lg border border-zinc-800 px-3 text-[13px] text-zinc-300 transition-colors hover:border-amber-500/50 hover:text-amber-200 ${focusRing}`}
-              >
-                {chip}
-              </button>
-            ))}
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+        {/* Brief: the idea is the starting point of the page */}
+        <section className={`${panelSurface} space-y-7 lg:col-span-8`}>
+          <div className="space-y-2">
+            <label htmlFor="create-title" className={fieldLabel}>
+              Título do vídeo
+            </label>
+            <input
+              id="create-title"
+              type="text"
+              value={videoTitle}
+              onChange={e => setVideoTitle(e.target.value)}
+              onKeyDown={handleSubmitShortcut}
+              placeholder="Ex: Troquei o Windows do meu Legion Go"
+              className={`${fieldSurface} h-12 px-4 text-[15px]`}
+            />
           </div>
-        )}
-      </div>
 
-      {/* 3. Action row */}
-      <div className="space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="grid grid-cols-2 gap-2.5 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
-            <button
-              type="button"
-              onClick={handleReferencesButton}
-              className={`${secondaryButton} ${secondaryIdle}`}
-            >
-              <Upload className="h-4 w-4 text-zinc-400" aria-hidden="true" />
-              <span>Referências</span>
-              {references.length > 0 && (
-                <span className="rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-zinc-950">
-                  {references.length}
-                </span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowTextPanel(prev => !prev)}
-              aria-expanded={showTextPanel}
-              aria-controls="create-text-panel"
-              className={`${secondaryButton} ${showTextPanel ? secondaryActive : secondaryIdle}`}
-            >
-              <Type className="h-4 w-4" aria-hidden="true" />
-              <span>Texto</span>
-              {thumbnailText.trim() && textTreatment !== 'SEM_TEXTO' && (
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-400" aria-label="texto definido" />
-              )}
-            </button>
-
-            <div className="relative">
-              <AspectIcon
-                className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
-                aria-hidden="true"
-              />
-              <select
-                value={aspectRatio}
-                onChange={e => setAspectRatio(e.target.value as '16:9' | '9:16')}
-                aria-label="Formato da thumbnail"
-                className={`${secondaryButton} ${secondaryIdle} w-full appearance-none bg-transparent pl-10 pr-9 [&>option]:bg-zinc-900`}
-              >
-                <option value="16:9">16:9</option>
-                <option value="9:16">9:16</option>
-              </select>
-              <ChevronDown
-                className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
-                aria-hidden="true"
-              />
+          <div className="space-y-3">
+            <div className="flex items-baseline justify-between gap-3">
+              <label htmlFor="create-idea" className={fieldLabel}>
+                O que você imagina?
+              </label>
+              <span className="hidden text-xs text-zinc-500 sm:inline">Linguagem natural, como falaria com uma pessoa</span>
             </div>
+            <textarea
+              id="create-idea"
+              ref={ideaRef}
+              rows={6}
+              value={ideaDescription}
+              onChange={e => setIdeaDescription(e.target.value)}
+              onKeyDown={handleSubmitShortcut}
+              placeholder={'Descreva sua thumbnail...\nEx: o Legion Go ligado na minha mão, expressão autêntica, sem neon.'}
+              className={`${fieldSurface} block min-h-[200px] resize-y px-4 py-4 text-[17px] leading-relaxed`}
+            />
 
-            <button
-              type="button"
-              onClick={() => setShowAdvanced(prev => !prev)}
-              aria-expanded={showAdvanced}
-              aria-controls="create-advanced-panel"
-              className={`${secondaryButton} ${showAdvanced ? secondaryActive : secondaryIdle}`}
-            >
-              <Settings className="h-4 w-4" aria-hidden="true" />
-              <span>Avançado</span>
-            </button>
+            {contextualChips.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-zinc-500">Para ficar mais fiel:</span>
+                {contextualChips.map(chip => (
+                  <button
+                    key={chip}
+                    type="button"
+                    onClick={openFilePicker}
+                    className={`h-9 rounded-md border border-zinc-800 px-3 text-xs text-zinc-300 transition-colors hover:border-amber-500/50 hover:text-amber-200 ${focusRing}`}
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Primary CTA */}
+      {/* 4. Referências (single upload flow: picker + drag-and-drop) */}
+      <section
+        ref={referencesSectionRef}
+        aria-labelledby="create-refs-heading"
+        className="scroll-mt-28 space-y-3"
+        onDragOver={e => {
+          e.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={e => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setIsDragging(false);
+        }}
+        onDrop={e => {
+          e.preventDefault();
+          setIsDragging(false);
+          handleFiles(e.dataTransfer.files);
+        }}
+      >
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h3 id="create-refs-heading" className={fieldLabel}>
+            Referências
+          </h3>
+          <span className="w-full text-sm text-zinc-500 sm:w-auto">
+            <span aria-hidden="true" className="mr-3 hidden text-zinc-600 sm:inline">•</span>
+            Quanto mais você mostrar, menos a IA precisa inventar.
+          </span>
+        </div>
+
+        <input
+          type="file"
+          ref={fileInputRef}
+          multiple
+          accept="image/*"
+          className="hidden"
+          onChange={e => {
+            handleFiles(e.target.files);
+            e.target.value = '';
+          }}
+        />
+        <input
+          type="file"
+          ref={replaceInputRef}
+          accept="image/*"
+          className="hidden"
+          onChange={e => {
+            handleReplaceFile(e.target.files);
+            e.target.value = '';
+          }}
+        />
+
+        {references.length === 0 ? (
           <button
+            ref={addReferenceRef}
             type="button"
-            onClick={() => handleGenerate()}
-            disabled={ctaState !== 'ready'}
-            aria-busy={ctaState === 'loading'}
-            title={ctaState === 'empty' ? 'Preencha o título ou descreva a ideia' : 'Gerar (Ctrl + Enter)'}
-            className={`inline-flex h-12 w-full shrink-0 items-center justify-center gap-2.5 rounded-xl px-7 text-sm font-bold uppercase tracking-[0.06em] transition-colors sm:w-auto ${focusRing} ${
-              ctaState === 'ready'
-                ? 'bg-amber-500 text-zinc-950 hover:bg-amber-400 active:bg-amber-600'
-                : ctaState === 'loading'
-                  ? 'cursor-wait bg-amber-500 text-zinc-950'
-                  : 'cursor-not-allowed border border-zinc-800 bg-zinc-900 text-zinc-500'
+            onClick={openFilePicker}
+            className={`flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-6 py-8 text-center transition-colors ${focusRing} ${
+              isDragging
+                ? 'border-amber-500 bg-amber-500/5'
+                : 'border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900/40'
             }`}
           >
-            {ctaState === 'loading' ? (
-              <>
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-950 border-t-transparent" aria-hidden="true" />
-                <span>Gerando...</span>
-              </>
-            ) : (
-              <>
-                <WandSparkles className="h-4 w-4" aria-hidden="true" />
-                <span>Gerar thumbnail prompt</span>
-              </>
-            )}
+            <Upload className={`h-6 w-6 ${isDragging ? 'text-amber-400' : 'text-zinc-400'}`} aria-hidden="true" />
+            <span className="text-base font-semibold text-zinc-100">
+              {isDragging ? 'Solte para adicionar' : 'Adicionar referência'}
+            </span>
+            <span className="text-sm text-zinc-500">
+              Ou arraste fotos aqui (rosto, produto, cenário, estilo ou tipografia)
+            </span>
           </button>
-        </div>
+        ) : (
+          <div
+            className={`grid grid-cols-2 gap-3 rounded-xl transition-colors md:grid-cols-3 lg:grid-cols-4 ${
+              isDragging ? 'outline-dashed outline-1 outline-offset-4 outline-amber-500' : ''
+            }`}
+          >
+            {references.map(ref => (
+              <div key={ref.id} className="flex flex-col gap-2.5 rounded-xl border border-zinc-800 bg-[#111216] p-2.5">
+                <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-zinc-950">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={ref.url} alt={ref.name} className="h-full w-full object-cover" />
+                  <div className="absolute right-1.5 top-1.5 flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => startReplace(ref.id)}
+                      aria-label={`Trocar imagem de ${ref.name}`}
+                      title="Trocar imagem (mantém o papel)"
+                      className={`grid h-10 w-10 sm:h-8 sm:w-8 place-items-center rounded-lg bg-zinc-950/80 text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-50 ${focusRing}`}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveRef(ref.id)}
+                      aria-label={`Remover ${ref.name}`}
+                      title="Remover referência"
+                      className={`grid h-10 w-10 sm:h-8 sm:w-8 place-items-center rounded-lg bg-zinc-950/80 text-zinc-300 transition-colors hover:bg-rose-500/80 hover:text-zinc-50 ${focusRing}`}
+                    >
+                      <X className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+
+                <span className="truncate text-xs text-zinc-400" title={ref.name}>
+                  {ref.name}
+                </span>
+
+                <div className="relative">
+                  <select
+                    value={ref.role}
+                    onChange={e => handleRoleChange(ref.id, e.target.value as SimpleReferenceRole)}
+                    aria-label={`Papel da referência ${ref.name}`}
+                    className={`h-10 sm:h-9 w-full appearance-none rounded-lg border border-zinc-800 bg-zinc-950 pl-3 pr-8 text-[13px] font-semibold text-amber-300 transition-colors hover:border-zinc-700 focus:border-amber-500/70 focus:outline-none [&>option]:text-zinc-200`}
+                  >
+                    {ALL_ROLES.map(role => (
+                      <option key={role} value={role}>
+                        {ROLE_LABEL[role]}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown
+                    className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500"
+                    aria-hidden="true"
+                  />
+                </div>
+
+                {ref.role === 'CENÁRIO' ? (
+                  <div className="space-y-1.5">
+                    <div role="radiogroup" aria-label="Uso do cenário" className="grid grid-cols-2 gap-1 rounded-lg border border-zinc-800 bg-zinc-950 p-0.5">
+                      {(
+                        [
+                          ['MEU_AMBIENTE', 'Meu ambiente'],
+                          ['REFERENCIA_AMBIENTE', 'Referência']
+                        ] as [ScenarioInterpretation, string][]
+                      ).map(([mode, label]) => {
+                        const selected = (ref.scenarioMode || 'MEU_AMBIENTE') === mode;
+                        return (
+                          <button
+                            key={mode}
+                            type="button"
+                            role="radio"
+                            aria-checked={selected}
+                            onClick={() => handleScenarioModeChange(ref.id, mode)}
+                            className={`min-h-7 rounded-md px-1 py-1 text-[11px] font-semibold leading-tight transition-colors ${focusRing} ${
+                              selected ? 'bg-zinc-700 text-zinc-50' : 'text-zinc-400 hover:text-zinc-100'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] leading-snug text-zinc-500">
+                      {ref.scenarioMode === 'REFERENCIA_AMBIENTE'
+                        ? 'Apenas atmosfera, não copia layout.'
+                        : 'Preserva layout e elementos deste local.'}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[11px] leading-snug text-zinc-500">{ROLE_MICROCOPY[ref.role]}</p>
+                )}
+              </div>
+            ))}
+
+            <button
+              ref={addReferenceRef}
+              type="button"
+              onClick={openFilePicker}
+              className={`flex min-h-[140px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-800 text-sm text-zinc-400 transition-colors hover:border-zinc-600 hover:bg-zinc-900/40 hover:text-zinc-100 ${focusRing}`}
+            >
+              <ImagePlus className="h-5 w-5" aria-hidden="true" />
+              Adicionar imagem
+            </button>
+          </div>
+        )}
+      </section>
+
+        </section>
+
+        {/* Settings: they support the idea, they do not compete with it */}
+        <aside className="space-y-4 lg:sticky lg:top-24 lg:col-span-4">
+          <div className={`${panelSurface} space-y-4 p-4 sm:p-5`}>
+            <p className={sectionTitle}>Ajustes</p>
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={handleReferencesButton}
+                className={`${secondaryButton} ${secondaryIdle} justify-start`}
+              >
+                <Upload className="h-4 w-4 text-zinc-400" aria-hidden="true" />
+                <span>Referências</span>
+                {references.length > 0 && (
+                  <span className="ml-auto rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-zinc-950">
+                    {references.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowTextPanel(prev => !prev)}
+                aria-expanded={showTextPanel}
+                aria-controls="create-text-panel"
+                className={`${secondaryButton} ${showTextPanel ? secondaryActive : secondaryIdle} justify-start`}
+              >
+                <Type className="h-4 w-4" aria-hidden="true" />
+                <span>Texto</span>
+                {thumbnailText.trim() && textTreatment !== 'SEM_TEXTO' && (
+                  <span className="ml-auto h-1.5 w-1.5 rounded-full bg-amber-400" aria-label="texto definido" />
+                )}
+              </button>
+
+              <div className="relative">
+                <AspectIcon
+                  className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+                  aria-hidden="true"
+                />
+                <select
+                  value={aspectRatio}
+                  onChange={e => setAspectRatio(e.target.value as '16:9' | '9:16')}
+                  aria-label="Formato da thumbnail"
+                  className={`${secondaryButton} ${secondaryIdle} w-full appearance-none bg-transparent pl-10 pr-9 [&>option]:bg-zinc-900`}
+                >
+                  <option value="16:9">16:9</option>
+                  <option value="9:16">9:16</option>
+                </select>
+                <ChevronDown
+                  className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
+                  aria-hidden="true"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(prev => !prev)}
+                aria-expanded={showAdvanced}
+                aria-controls="create-advanced-panel"
+                className={`${secondaryButton} ${showAdvanced ? secondaryActive : secondaryIdle} justify-start`}
+              >
+                <Settings className="h-4 w-4" aria-hidden="true" />
+                <span>Avançado</span>
+              </button>
+            </div>
+          </div>
 
         {/* Text panel */}
         {showTextPanel && (
@@ -809,275 +978,146 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowCloudAi = fal
             </div>
           </div>
         )}
-      </div>
 
-      {/* 4. Referências (single upload flow: picker + drag-and-drop) */}
-      <section
-        ref={referencesSectionRef}
-        aria-labelledby="create-refs-heading"
-        className="scroll-mt-28 space-y-3"
-        onDragOver={e => {
-          e.preventDefault();
-          setIsDragging(true);
-        }}
-        onDragLeave={e => {
-          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setIsDragging(false);
-        }}
-        onDrop={e => {
-          e.preventDefault();
-          setIsDragging(false);
-          handleFiles(e.dataTransfer.files);
-        }}
-      >
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h3 id="create-refs-heading" className={fieldLabel}>
-            Referências
-          </h3>
-          <span className="w-full text-sm text-zinc-500 sm:w-auto">
-            <span aria-hidden="true" className="mr-3 hidden text-zinc-600 sm:inline">•</span>
-            Quanto mais você mostrar, menos a IA precisa inventar.
-          </span>
-        </div>
 
-        <input
-          type="file"
-          ref={fileInputRef}
-          multiple
-          accept="image/*"
-          className="hidden"
-          onChange={e => {
-            handleFiles(e.target.files);
-            e.target.value = '';
-          }}
-        />
-        <input
-          type="file"
-          ref={replaceInputRef}
-          accept="image/*"
-          className="hidden"
-          onChange={e => {
-            handleReplaceFile(e.target.files);
-            e.target.value = '';
-          }}
-        />
-
-        {references.length === 0 ? (
-          <button
-            ref={addReferenceRef}
-            type="button"
-            onClick={openFilePicker}
-            className={`flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-6 py-8 text-center transition-colors ${focusRing} ${
-              isDragging
-                ? 'border-amber-500 bg-amber-500/5'
-                : 'border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900/40'
-            }`}
-          >
-            <Upload className={`h-6 w-6 ${isDragging ? 'text-amber-400' : 'text-zinc-400'}`} aria-hidden="true" />
-            <span className="text-base font-semibold text-zinc-100">
-              {isDragging ? 'Solte para adicionar' : 'Adicionar referência'}
-            </span>
-            <span className="text-sm text-zinc-500">
-              Ou arraste fotos aqui (rosto, produto, cenário, estilo ou tipografia)
-            </span>
-          </button>
-        ) : (
-          <div
-            className={`grid grid-cols-2 gap-3 rounded-xl transition-colors md:grid-cols-3 lg:grid-cols-4 ${
-              isDragging ? 'outline-dashed outline-1 outline-offset-4 outline-amber-500' : ''
-            }`}
-          >
-            {references.map(ref => (
-              <div key={ref.id} className="flex flex-col gap-2.5 rounded-xl border border-zinc-800 bg-[#111216] p-2.5">
-                <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-zinc-950">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={ref.url} alt={ref.name} className="h-full w-full object-cover" />
-                  <div className="absolute right-1.5 top-1.5 flex gap-1">
-                    <button
-                      type="button"
-                      onClick={() => startReplace(ref.id)}
-                      aria-label={`Trocar imagem de ${ref.name}`}
-                      title="Trocar imagem (mantém o papel)"
-                      className={`grid h-10 w-10 sm:h-8 sm:w-8 place-items-center rounded-lg bg-zinc-950/80 text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-50 ${focusRing}`}
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveRef(ref.id)}
-                      aria-label={`Remover ${ref.name}`}
-                      title="Remover referência"
-                      className={`grid h-10 w-10 sm:h-8 sm:w-8 place-items-center rounded-lg bg-zinc-950/80 text-zinc-300 transition-colors hover:bg-rose-500/80 hover:text-zinc-50 ${focusRing}`}
-                    >
-                      <X className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  </div>
-                </div>
-
-                <span className="truncate text-xs text-zinc-400" title={ref.name}>
-                  {ref.name}
-                </span>
-
-                <div className="relative">
-                  <select
-                    value={ref.role}
-                    onChange={e => handleRoleChange(ref.id, e.target.value as SimpleReferenceRole)}
-                    aria-label={`Papel da referência ${ref.name}`}
-                    className={`h-10 sm:h-9 w-full appearance-none rounded-lg border border-zinc-800 bg-zinc-950 pl-3 pr-8 text-[13px] font-semibold text-amber-300 transition-colors hover:border-zinc-700 focus:border-amber-500/70 focus:outline-none [&>option]:text-zinc-200`}
-                  >
-                    {ALL_ROLES.map(role => (
-                      <option key={role} value={role}>
-                        {ROLE_LABEL[role]}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown
-                    className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500"
-                    aria-hidden="true"
-                  />
-                </div>
-
-                {ref.role === 'CENÁRIO' ? (
-                  <div className="space-y-1.5">
-                    <div role="radiogroup" aria-label="Uso do cenário" className="grid grid-cols-2 gap-1 rounded-lg border border-zinc-800 bg-zinc-950 p-0.5">
-                      {(
-                        [
-                          ['MEU_AMBIENTE', 'Meu ambiente'],
-                          ['REFERENCIA_AMBIENTE', 'Referência']
-                        ] as [ScenarioInterpretation, string][]
-                      ).map(([mode, label]) => {
-                        const selected = (ref.scenarioMode || 'MEU_AMBIENTE') === mode;
-                        return (
-                          <button
-                            key={mode}
-                            type="button"
-                            role="radio"
-                            aria-checked={selected}
-                            onClick={() => handleScenarioModeChange(ref.id, mode)}
-                            className={`min-h-7 rounded-md px-1 py-1 text-[11px] font-semibold leading-tight transition-colors ${focusRing} ${
-                              selected ? 'bg-zinc-700 text-zinc-50' : 'text-zinc-400 hover:text-zinc-100'
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <p className="text-[11px] leading-snug text-zinc-500">
-                      {ref.scenarioMode === 'REFERENCIA_AMBIENTE'
-                        ? 'Apenas atmosfera, não copia layout.'
-                        : 'Preserva layout e elementos deste local.'}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-[11px] leading-snug text-zinc-500">{ROLE_MICROCOPY[ref.role]}</p>
-                )}
-              </div>
-            ))}
-
+          {/* Primary action: fixed at the bottom on phones, in the column on desktop */}
+          <div className="max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-30 max-sm:border-t max-sm:border-zinc-800 max-sm:bg-[#090a0d] max-sm:p-3">
             <button
-              ref={addReferenceRef}
               type="button"
-              onClick={openFilePicker}
-              className={`flex min-h-[140px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-800 text-sm text-zinc-400 transition-colors hover:border-zinc-600 hover:bg-zinc-900/40 hover:text-zinc-100 ${focusRing}`}
+              onClick={() => handleGenerate()}
+              disabled={ctaState !== 'ready'}
+              aria-busy={ctaState === 'loading'}
+              title={ctaState === 'empty' ? 'Preencha o título ou descreva a ideia' : 'Gerar (Ctrl + Enter)'}
+              className={ctaClass}
             >
-              <ImagePlus className="h-5 w-5" aria-hidden="true" />
-              Adicionar imagem
+              {ctaState === 'loading' ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-950 border-t-transparent" aria-hidden="true" />
+                  <span>Gerando...</span>
+                </>
+              ) : (
+                <>
+                  <WandSparkles className="h-4 w-4" aria-hidden="true" />
+                  <span>Gerar thumbnail prompt</span>
+                </>
+              )}
             </button>
           </div>
-        )}
-      </section>
+        </aside>
+      </div>
 
-      {/* 5. Resultado */}
+      {isLoading && !result && (
+        <div aria-hidden="true" className={`${panelSurface} grid gap-8 border-t-0 lg:grid-cols-12`}>
+          <div className="space-y-3 lg:col-span-4">
+            <div className={`${skeletonBar} h-3 w-24`} />
+            <div className={`${skeletonBar} h-4 w-full`} />
+            <div className={`${skeletonBar} h-4 w-11/12`} />
+            <div className={`${skeletonBar} h-4 w-4/5`} />
+          </div>
+          <div className="space-y-3 lg:col-span-8">
+            <div className={`${skeletonBar} h-3 w-32`} />
+            <div className={`${skeletonBar} h-64 w-full`} />
+          </div>
+        </div>
+      )}
+
       {result && (
-        <div ref={resultRef} className="scroll-mt-28 space-y-6 border-t border-zinc-800/80 pt-8">
-          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
-            {/* Direção visual */}
-            <div className="space-y-4 lg:col-span-5">
-              <div className={`${panelSurface} space-y-4`}>
-                <div className="flex items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
-                  <h3 className={fieldLabel}>Direção visual</h3>
-                  <span className="truncate text-xs text-zinc-500">{result.approachTitle}</span>
-                </div>
+        <section ref={resultRef} className="scroll-mt-28 space-y-6 border-t border-zinc-800/70 pt-10">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
+              <p className={eyebrow}>Resultado</p>
+              <h3 className="mt-1.5 truncate text-xl font-semibold tracking-tight text-zinc-50">{result.approachTitle}</h3>
+            </div>
+            <button
+              type="button"
+              onClick={handleAnotherApproach}
+              disabled={isLoading}
+              className={`${secondaryButton} ${secondaryIdle} shrink-0`}
+            >
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              <span>Gerar outra abordagem</span>
+            </button>
+          </div>
 
-                <dl className="space-y-4">
-                  {(
-                    [
-                      ['Ideia', result.direction.ideia],
-                      ['Foco', result.direction.foco],
-                      ['Composição', result.direction.composicao],
-                      ['Expressão', result.direction.expressao],
-                      ['Visual & luz', result.direction.visual]
-                    ] as [string, string][]
-                  ).map(([label, value]) => (
-                    <div key={label}>
-                      <dt className="mb-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-amber-500">{label}</dt>
-                      <dd className="text-sm leading-relaxed text-zinc-200">{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </div>
+          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+            {/* Direction reads as a list with dividers, not a stack of boxes */}
+            <div className={`${panelSurface} space-y-6 lg:col-span-4`}>
+              <p className={sectionTitle}>Direção visual</p>
+              <dl className="divide-y divide-zinc-800/70">
+                {(
+                  [
+                    ['Ideia', result.direction.ideia],
+                    ['Foco', result.direction.foco],
+                    ['Composição', result.direction.composicao],
+                    ['Expressão', result.direction.expressao],
+                    ['Visual & luz', result.direction.visual]
+                  ] as [string, string][]
+                ).map(([label, value]) => (
+                  <div key={label} className="py-3.5 first:pt-0 last:pb-0">
+                    <dt className="text-xs font-medium text-zinc-500">{label}</dt>
+                    <dd className="mt-1 text-sm leading-relaxed text-zinc-200">{value}</dd>
+                  </div>
+                ))}
+              </dl>
 
               {result.typographyPlan && (
-                <div className={`${panelSurface} space-y-2`}>
-                  <span className="block text-[11px] font-semibold uppercase tracking-[0.1em] text-amber-500">
-                    Plano de tipografia
-                  </span>
-                  <p className="whitespace-pre-line text-sm leading-relaxed text-zinc-300">{result.typographyPlan}</p>
+                <div className="border-l-2 border-amber-500/60 pl-4">
+                  <p className={sectionTitle}>Plano de tipografia</p>
+                  <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-zinc-300">{result.typographyPlan}</p>
                 </div>
               )}
             </div>
 
-            {/* Prompt final */}
-            <div className="space-y-4 lg:col-span-7">
-              <div className={`${panelSurface} space-y-4`}>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <span className={fieldLabel}>Prompt final (English)</span>
-                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                      <p className="text-sm text-zinc-400">
-                        Pronto para colar no{' '}
-                        {normalizeTargetModel(targetModel) === 'GERAL'
-                          ? 'Midjourney, FLUX ou seu gerador preferido'
-                          : TARGET_MODEL_CONFIGS[normalizeTargetModel(targetModel)]?.displayName || targetModel}
-                      </p>
-                      {result.outputMetadata && (
-                        <span className="inline-flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-950 px-2 py-0.5 font-mono text-[11px] text-zinc-400">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
-                          {result.outputMetadata.modelId} · {result.outputMetadata.aspectRatioHint}
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-1 text-xs text-zinc-500">
-                      Fonte: motor anti-slop determinístico
-                      {result.aiAssist?.provider === 'workers-ai'
-                        ? (result.aiAssist.referencesChecked || 0) > 0
-                          ? ` · ${result.aiAssist.referencesChecked} referência(s) conferida(s) por IA na nuvem gratuita${result.aiAssist.findings ? '' : ' (sem observações)'}. Built with Llama.`
-                          : ` · IA na nuvem não conferiu as referências${result.aiAssist.fallbackReason ? ` (${describeAiFallback(result.aiAssist.fallbackReason)})` : ''}.`
-                        : result.aiAssist?.provider === 'openai' || result.aiAssist?.provider === 'gemini'
-                          ? ' · referências analisadas pela IA configurada no servidor.'
-                          : result.aiAssist?.fallbackReason
-                            ? ` (sem IA: ${describeAiFallback(result.aiAssist.fallbackReason)}).`
-                            : ' (sem IA).'}
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleCopyPrompt}
-                    className={`inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 text-sm font-bold uppercase tracking-[0.06em] text-zinc-950 transition-colors hover:bg-amber-400 active:bg-amber-600 ${focusRing}`}
-                  >
-                    {copied ? <Check className="h-4 w-4" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
-                    <span>{copied ? 'Copiado!' : 'Copiar'}</span>
-                  </button>
+            {/* The deliverable: the prompt, presented as a document with its copy action in the header */}
+            <div className={`${panelSurface} overflow-hidden p-0 lg:col-span-8`}>
+              <div className="flex flex-col gap-4 border-b border-zinc-800/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className={fieldLabel}>Prompt final (English)</p>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    Pronto para colar no{' '}
+                    {normalizeTargetModel(targetModel) === 'GERAL'
+                      ? 'Midjourney, FLUX ou seu gerador preferido'
+                      : TARGET_MODEL_CONFIGS[normalizeTargetModel(targetModel)]?.displayName || targetModel}
+                  </p>
+                  {result.outputMetadata && (
+                    <span className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-950 px-2 py-0.5 font-mono text-[11px] text-zinc-400">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+                      {result.outputMetadata.modelId} · {result.outputMetadata.aspectRatioHint}
+                    </span>
+                  )}
                 </div>
 
-                <div className="max-h-[28rem] select-all overflow-y-auto whitespace-pre-wrap rounded-lg border border-zinc-800/80 bg-zinc-950 p-4 font-mono text-xs leading-relaxed text-zinc-200 sm:p-5">
+                <button
+                  type="button"
+                  onClick={handleCopyPrompt}
+                  className={`inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400 active:bg-amber-600 ${focusRing}`}
+                >
+                  {copied ? <Check className="h-4 w-4" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
+                  <span>{copied ? 'Copiado!' : 'Copiar prompt'}</span>
+                </button>
+              </div>
+
+              <div className="space-y-5 p-5">
+                <div className={`${insetSurface} max-h-[30rem] select-all overflow-y-auto whitespace-pre-wrap p-4 font-mono text-[12.5px] leading-[1.7] text-zinc-300 sm:p-5`}>
                   {result.finalPrompt}
                 </div>
 
+                <p className="text-xs leading-relaxed text-zinc-500">
+                  Fonte: motor anti-slop determinístico
+                  {result.aiAssist?.provider === 'workers-ai'
+                    ? (result.aiAssist.referencesChecked || 0) > 0
+                      ? ` · ${result.aiAssist.referencesChecked} referência(s) conferida(s) por IA na nuvem gratuita${result.aiAssist.findings ? '' : ' (sem observações)'}. Built with Llama.`
+                      : ` · IA na nuvem não conferiu as referências${result.aiAssist.fallbackReason ? ` (${describeAiFallback(result.aiAssist.fallbackReason)})` : ''}.`
+                    : result.aiAssist?.provider === 'openai' || result.aiAssist?.provider === 'gemini'
+                      ? ' · referências analisadas pela IA configurada no servidor.'
+                      : result.aiAssist?.fallbackReason
+                        ? ` (sem IA: ${describeAiFallback(result.aiAssist.fallbackReason)}).`
+                        : ' (sem IA).'}
+                </p>
+
                 {result.modelNotes && result.modelNotes.length > 0 && (
-                  <div className="space-y-2 rounded-lg border border-zinc-800 p-4">
-                    <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-300">
+                  <div className="space-y-2 border-t border-zinc-800/70 pt-4">
+                    <span className="flex items-center gap-2 text-xs font-medium text-zinc-300">
                       <Info className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
                       Antes de gerar (não faz parte do prompt)
                     </span>
@@ -1091,19 +1131,7 @@ export function ModeCreate({ onNotify, onRefreshHistoryCount, allowCloudAi = fal
               </div>
             </div>
           </div>
-
-          <div className="pb-4 text-center">
-            <button
-              type="button"
-              onClick={handleAnotherApproach}
-              disabled={isLoading}
-              className={`${secondaryButton} ${secondaryIdle}`}
-            >
-              <RotateCcw className="h-4 w-4" aria-hidden="true" />
-              <span>Gerar outra abordagem visual</span>
-            </button>
-          </div>
-        </div>
+        </section>
       )}
     </div>
   );

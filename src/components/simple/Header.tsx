@@ -40,11 +40,11 @@ export function SimpleHeader({
   cloudAi
 }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-30 border-b border-zinc-800/70 bg-[#090a0d]/95 backdrop-blur">
+    <header className="sticky top-0 z-30 border-b border-zinc-800/70 bg-[#090a0d]">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-3 px-4 py-3 sm:px-6 md:h-[72px] md:flex-nowrap md:py-0">
         {/* Brand + engine status (quiet) */}
         <div className="order-1 flex min-w-0 items-center gap-3">
-          <span className="truncate text-[15px] font-bold uppercase tracking-[0.06em] text-zinc-50">
+          <span className="truncate text-sm font-semibold tracking-tight text-zinc-50">
             Thumbnail Anti-Slop
           </span>
           {cloudAi ? (
@@ -83,7 +83,7 @@ export function SimpleHeader({
         {/* Mode navigation */}
         <nav
           aria-label="Modos"
-          className="order-3 flex w-full items-center gap-1 rounded-xl border border-zinc-800 bg-[#111216] p-1 md:order-2 md:w-auto"
+          className="order-3 flex w-full items-stretch gap-6 border-t border-zinc-800/60 md:order-2 md:w-auto md:gap-7 md:border-0"
         >
           {MODES.map(mode => {
             const active = currentMode === mode.id;
@@ -93,8 +93,8 @@ export function SimpleHeader({
                 type="button"
                 onClick={() => onSelectMode(mode.id)}
                 aria-current={active ? 'page' : undefined}
-                className={`h-10 flex-1 rounded-lg px-3 text-xs font-semibold uppercase tracking-[0.08em] transition-colors md:flex-initial md:px-5 md:text-[13px] ${focusRing} ${
-                  active ? 'bg-amber-500 text-zinc-950' : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-100'
+                className={`relative h-11 flex-1 text-[13px] font-medium transition-colors md:flex-initial ${focusRing} ${
+                  active ? 'text-zinc-50 after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full after:bg-amber-500' : 'text-zinc-500 hover:text-zinc-200'
                 }`}
               >
                 <span className="sm:hidden">{mode.shortLabel}</span>
@@ -109,7 +109,7 @@ export function SimpleHeader({
           type="button"
           onClick={onOpenHistory}
           aria-label={historyCount > 0 ? `Histórico (${historyCount})` : 'Histórico'}
-          className={`order-2 inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-zinc-800 px-3 text-sm sm:px-3.5 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-900 hover:text-zinc-100 md:order-3 ${focusRing}`}
+          className={`order-2 inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-zinc-800 px-3 text-sm sm:px-3.5 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-900 hover:text-zinc-100 md:order-3 ${focusRing}`}
         >
           <History className="h-4 w-4 text-zinc-400" aria-hidden="true" />
           <span className="hidden min-[400px]:inline">Histórico</span>

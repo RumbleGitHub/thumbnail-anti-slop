@@ -18,7 +18,22 @@ import { analyzeFromMetrics } from '@/lib/simpleEngine/pixelAnalysis';
 import { measureImage, prepareImageForUpload } from '@/lib/client/imageTools';
 import { describeAiFallback } from '@/lib/ai/free/reasons';
 import { saveSimpleHistoryItem } from '@/lib/simpleEngine/history';
-import { focusRing, fieldLabel, subLabel, fieldSurface, smallField, panelSurface, secondaryButton, secondaryIdle } from './ui';
+import {
+  focusRing,
+  fieldLabel,
+  subLabel,
+  fieldSurface,
+  smallField,
+  panelSurface,
+  secondaryButton,
+  secondaryIdle,
+  insetSurface,
+  primaryButton,
+  primaryReady,
+  primaryBusy,
+  skeletonBar
+} from './ui';
+import { WorkspaceHeader } from './WorkspaceHeader';
 
 interface ModeAnalyzeProps {
   onNotify: (msg: string) => void;
@@ -160,8 +175,10 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowCloudAi = fa
     </div>
   );
 
+  const ctaClass = `${primaryButton} w-full ${isLoading ? primaryBusy : primaryReady}`;
+
   return (
-    <div className="mx-auto max-w-5xl space-y-8 py-2 sm:py-4">
+    <div className="mx-auto max-w-6xl space-y-10 pb-10 pt-2 sm:pt-6">
       <input
         type="file"
         ref={fileInputRef}
@@ -173,8 +190,14 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowCloudAi = fa
         }}
       />
 
+      <WorkspaceHeader
+        step="03 · Analisar thumbnail"
+        title="Veja o que a imagem comunica"
+        lead="Envie a thumbnail. A análise mostra o que funciona, o que parece artificial e a correção que mais pesa."
+      />
+
       {!image && (
-        <div className="space-y-8">
+        <section className={`${panelSurface} space-y-6`}>
           {titleField}
           <div className="space-y-3">
             <span className={fieldLabel}>Thumbnail</span>
@@ -191,43 +214,38 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowCloudAi = fa
                 if (e.dataTransfer.files?.[0]) handleFile(e.dataTransfer.files[0]);
               }}
               onClick={() => fileInputRef.current?.click()}
-              className={`flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-6 py-14 text-center transition-colors ${focusRing} ${
+              className={`flex w-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-6 py-20 text-center transition-colors ${focusRing} ${
                 isDragging ? 'border-amber-500 bg-amber-500/5' : 'border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900/40'
               }`}
             >
-              <Upload className={`h-6 w-6 ${isDragging ? 'text-amber-400' : 'text-zinc-400'}`} aria-hidden="true" />
-              <span className="text-base font-semibold text-zinc-100">
-                {isDragging ? 'Solte para analisar' : 'Enviar thumbnail'}
+              <span className="grid h-11 w-11 place-items-center rounded-full border border-zinc-800 bg-zinc-950">
+                <Upload className={`h-5 w-5 ${isDragging ? 'text-amber-400' : 'text-zinc-400'}`} aria-hidden="true" />
               </span>
+              <span className="text-base font-semibold text-zinc-100">{isDragging ? 'Solte para analisar' : 'Enviar thumbnail'}</span>
               <span className="text-sm text-zinc-500">Ou arraste a imagem aqui (JPG, PNG ou WebP)</span>
             </button>
           </div>
-        </div>
+        </section>
       )}
 
       {image && (
         <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
-          <div className={`${panelSurface} space-y-4 lg:col-span-5`}>
-            <div className="aspect-video overflow-hidden rounded-lg bg-zinc-950">
+          {/* The thumbnail is the hero of this page */}
+          <section className={`${panelSurface} space-y-5 p-4 sm:p-5 lg:sticky lg:top-24 lg:col-span-7`}>
+            <div className="overflow-hidden rounded-lg border border-zinc-800/70 bg-zinc-950">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={image} alt="Thumbnail para análise" className="mx-auto h-full w-full object-contain" />
+              <img src={image} alt="Thumbnail para análise" className="mx-auto aspect-video h-auto w-full object-contain" />
             </div>
-            <button type="button" onClick={() => fileInputRef.current?.click()} className={`${secondaryButton} ${secondaryIdle} h-10 w-full`}>
-              <RefreshCw className="h-4 w-4" aria-hidden="true" />
-              Trocar imagem
-            </button>
 
-            {titleField}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1.4fr] sm:items-end">
+              <button type="button" onClick={() => fileInputRef.current?.click()} className={`${secondaryButton} ${secondaryIdle} w-full`}>
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                Trocar imagem
+              </button>
+              {titleField}
+            </div>
 
-            <button
-              type="button"
-              onClick={handleAnalyze}
-              disabled={isLoading}
-              aria-busy={isLoading}
-              className={`inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-xl px-6 text-sm font-bold uppercase tracking-[0.06em] transition-colors ${focusRing} ${
-                isLoading ? 'cursor-wait bg-amber-500 text-zinc-950' : 'bg-amber-500 text-zinc-950 hover:bg-amber-400 active:bg-amber-600'
-              }`}
-            >
+            <button type="button" onClick={handleAnalyze} disabled={isLoading} aria-busy={isLoading} className={ctaClass}>
               {isLoading ? (
                 <>
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-950 border-t-transparent" aria-hidden="true" />
@@ -240,100 +258,118 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount, allowCloudAi = fa
                 </>
               )}
             </button>
-          </div>
+          </section>
 
-          <div className="space-y-4 lg:col-span-7">
+          <div className="space-y-5 lg:col-span-5">
             {!result && !isLoading && (
-              <div className={`${panelSurface} space-y-2 py-10 text-center`}>
-                <ShieldCheck className="mx-auto h-7 w-7 text-zinc-600" aria-hidden="true" />
-                <p className="text-sm font-medium text-zinc-300">Pronto para auditar sua thumbnail</p>
-                <p className="mx-auto max-w-md text-sm text-zinc-500">
-                  Diagnóstico de contraste, iluminação artificial, distorções de hardware e pele plástica.
+              <section className={`${panelSurface} space-y-2 py-12 text-center`}>
+                <ShieldCheck className="mx-auto h-6 w-6 text-zinc-600" aria-hidden="true" />
+                <p className="pt-1 text-sm font-medium text-zinc-200">Pronto para auditar sua thumbnail</p>
+                <p className="mx-auto max-w-sm text-sm leading-relaxed text-zinc-500">
+                  Contraste, iluminação artificial, distorções de hardware e pele plástica.
                 </p>
-              </div>
+              </section>
+            )}
+
+            {isLoading && !result && (
+              <section aria-hidden="true" className={`${panelSurface} space-y-4`}>
+                <div className={`${skeletonBar} h-3 w-28`} />
+                <div className={`${skeletonBar} h-5 w-full`} />
+                <div className={`${skeletonBar} h-5 w-4/5`} />
+                <div className={`${skeletonBar} mt-6 h-3 w-36`} />
+                <div className={`${skeletonBar} h-4 w-full`} />
+                <div className={`${skeletonBar} h-4 w-3/4`} />
+              </section>
             )}
 
             {result && (
-              <div className="space-y-4">
+              <>
                 {result.analysisSource && (
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs leading-relaxed text-zinc-500">
                     {SOURCE_LABEL[result.analysisSource]}
                     {result.aiFallbackReason && ` IA na nuvem não usada: ${describeAiFallback(result.aiFallbackReason)}.`}
                   </p>
                 )}
                 {result.isLocal && (!result.analysisSource || result.analysisSource === 'title-only') && (
-                  <div role="note" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-relaxed text-amber-100">
+                  <div role="note" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-relaxed text-amber-100">
                     <strong className="font-semibold">Análise genérica — a imagem não foi examinada.</strong>{' '}
                     Sem um diretor visual configurado, o motor local só usa o título do vídeo. Os pontos abaixo são verificações comuns para esse tipo de thumbnail, não observações da sua imagem. Confira cada um antes de aplicar o prompt corretivo.
                   </div>
                 )}
 
-                <div className={`${panelSurface} space-y-3`}>
-                  <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-emerald-400">
-                    <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                    O que funciona
-                  </h3>
-                  <ul className="space-y-2">
-                    {result.functioning.map((item, idx) => (
-                      <li key={idx} className="text-sm leading-relaxed text-zinc-200">{item}</li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className={`${panelSurface} space-y-3`}>
-                  <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-rose-400">
-                    <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-                    O que parece artificial
-                  </h3>
-                  <ul className="space-y-2">
-                    {result.aiLooking.map((item, idx) => (
-                      <li key={idx} className="text-sm leading-relaxed text-zinc-200">{item}</li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 sm:p-5">
-                  <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-amber-400">
-                    <Flame className="h-4 w-4" aria-hidden="true" />
+                {/* The most important finding leads, with the corrective action next to it */}
+                <section className={`${panelSurface} space-y-4 border-l-2 border-l-amber-500`}>
+                  <p className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-amber-500">
+                    <Flame className="h-3.5 w-3.5" aria-hidden="true" />
                     Maior problema
-                  </h3>
-                  <p className="text-sm font-medium leading-relaxed text-zinc-100">{result.topProblem}</p>
+                  </p>
+                  <p className="text-[15px] font-medium leading-relaxed text-zinc-50">{result.topProblem}</p>
                   <button
                     type="button"
                     onClick={() => setShowFixPrompt(prev => !prev)}
                     aria-expanded={showFixPrompt}
                     aria-controls="analyze-fix-prompt"
-                    className={`${secondaryButton} ${secondaryIdle} h-10`}
+                    className={`${secondaryButton} ${secondaryIdle}`}
                   >
                     <WandSparkles className="h-4 w-4" aria-hidden="true" />
                     {showFixPrompt ? 'Ocultar prompt de correção' : 'Gerar prompt para corrigir'}
                   </button>
-                </div>
+                </section>
 
                 {showFixPrompt && (
-                  <div id="analyze-fix-prompt" className={`${panelSurface} space-y-3`}>
+                  <section id="analyze-fix-prompt" className={`${panelSurface} space-y-4`}>
                     <div className="flex items-center justify-between gap-3">
-                      <span className={fieldLabel}>Prompt corretivo</span>
+                      <p className={fieldLabel}>Prompt corretivo</p>
                       <button
                         type="button"
                         onClick={handleCopyFix}
-                        className={`inline-flex h-10 items-center gap-2 rounded-xl bg-amber-500 px-4 text-sm font-bold uppercase tracking-[0.06em] text-zinc-950 transition-colors hover:bg-amber-400 active:bg-amber-600 ${focusRing}`}
+                        className={`inline-flex h-10 items-center gap-2 rounded-lg bg-amber-500 px-4 text-sm font-semibold text-zinc-950 transition-colors hover:bg-amber-400 active:bg-amber-600 ${focusRing}`}
                       >
                         {copiedFix ? <Check className="h-4 w-4" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
                         {copiedFix ? 'Copiado!' : 'Copiar'}
                       </button>
                     </div>
-                    <div className="whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950 p-4 font-mono text-xs leading-relaxed text-zinc-200">
+                    <div className={`${insetSurface} whitespace-pre-wrap p-4 font-mono text-[12.5px] leading-[1.7] text-zinc-200`}>
                       {result.fixPrompt}
                     </div>
-                  </div>
+                  </section>
                 )}
-              </div>
+
+                {/* Findings share one surface, separated by dividers, each with its own accent */}
+                <section className={`${panelSurface} divide-y divide-zinc-800/70 p-0`}>
+                  <div className="space-y-3 px-5 py-5 sm:px-6">
+                    <p className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-rose-400">
+                      <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                      O que parece artificial
+                    </p>
+                    <ul className="space-y-2.5">
+                      {result.aiLooking.map((item, idx) => (
+                        <li key={idx} className="border-l border-rose-500/40 pl-3 text-sm leading-relaxed text-zinc-200">
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="space-y-3 px-5 py-5 sm:px-6">
+                    <p className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-emerald-400">
+                      <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      O que funciona
+                    </p>
+                    <ul className="space-y-2.5">
+                      {result.functioning.map((item, idx) => (
+                        <li key={idx} className="border-l border-emerald-500/40 pl-3 text-sm leading-relaxed text-zinc-300">
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </section>
+              </>
             )}
           </div>
         </div>
       )}
-
     </div>
   );
 }
