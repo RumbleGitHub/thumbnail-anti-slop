@@ -6,14 +6,16 @@ import {
   CheckCircle2,
   AlertTriangle,
   Flame,
-  Wand2,
+  WandSparkles,
   Copy,
   Check,
-  ShieldCheck
+  ShieldCheck,
+  RefreshCw
 } from 'lucide-react';
 import { AnalyzeThumbnailSimpleResult } from '@/types/simple';
 import { analyzeThumbnailLocally } from '@/lib/simpleEngine/engine';
 import { saveSimpleHistoryItem } from '@/lib/simpleEngine/history';
+import { focusRing, fieldLabel, subLabel, fieldSurface, smallField, panelSurface, secondaryButton, secondaryIdle } from './ui';
 
 interface ModeAnalyzeProps {
   onNotify: (msg: string) => void;
@@ -30,24 +32,31 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount }: ModeAnalyzeProp
   const [isDragging, setIsDragging] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inFlightRef = useRef(false);
 
   const handleFile = (file: File) => {
-    if (!file.type.startsWith('image/')) return;
+    if (!file.type.startsWith('image/')) {
+      onNotify('Use uma imagem JPG, PNG ou WebP.');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = e => {
       setImage(e.target?.result as string);
       setResult(null);
       setShowFixPrompt(false);
     };
+    reader.onerror = () => onNotify(`Não foi possível ler ${file.name}.`);
     reader.readAsDataURL(file);
   };
 
   const handleAnalyze = async () => {
+    if (inFlightRef.current) return;
     if (!image) {
       onNotify('Envie uma imagem para análise.');
       return;
     }
 
+    inFlightRef.current = true;
     setIsLoading(true);
 
     try {
@@ -81,6 +90,7 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount }: ModeAnalyzeProp
       setResult(fallback);
       onNotify('Análise genérica concluída (imagem não examinada).');
     } finally {
+      inFlightRef.current = false;
       setIsLoading(false);
     }
   };
@@ -93,18 +103,24 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount }: ModeAnalyzeProp
     setTimeout(() => setCopiedFix(false), 2500);
   };
 
-  return (
-    <div className="space-y-6 max-w-6xl mx-auto py-2 sm:py-4">
-      {/* Top Header / Intro */}
-      <div className="space-y-1">
-        <h2 className="text-xs font-mono font-bold uppercase tracking-wider text-amber-500">
-          ANALISAR THUMBNAIL
-        </h2>
-        <p className="text-xs text-zinc-400 font-sans">
-          Identifique elementos artificiais e receba um diagnóstico estético direto sem pontuações numéricas fictícias.
-        </p>
-      </div>
+  const titleField = (
+    <div className="space-y-2">
+      <label htmlFor="analyze-title" className={image ? subLabel : fieldLabel}>
+        Título do vídeo <span className="font-normal normal-case tracking-normal text-zinc-500">(opcional)</span>
+      </label>
+      <input
+        id="analyze-title"
+        type="text"
+        value={videoTitle}
+        onChange={e => setVideoTitle(e.target.value)}
+        placeholder="Ex: Como dobrei a bateria do meu celular"
+        className={image ? smallField : `${fieldSurface} h-14 px-5 text-base`}
+      />
+    </div>
+  );
 
+  return (
+    <div className="mx-auto max-w-5xl space-y-8 py-2 sm:py-4">
       <input
         type="file"
         ref={fileInputRef}
@@ -112,223 +128,155 @@ export function ModeAnalyze({ onNotify, onRefreshHistoryCount }: ModeAnalyzeProp
         className="hidden"
         onChange={e => {
           if (e.target.files?.[0]) handleFile(e.target.files[0]);
+          e.target.value = '';
         }}
       />
 
-      {/* Case 1: No Image uploaded yet — Large Clean Drop Area */}
       {!image && (
-        <div className="space-y-4">
-          <div
-            onDragOver={e => {
-              e.preventDefault();
-              setIsDragging(true);
-            }}
-            onDragLeave={() => setIsDragging(false)}
-            onDrop={e => {
-              e.preventDefault();
-              setIsDragging(false);
-              if (e.dataTransfer.files?.[0]) handleFile(e.dataTransfer.files[0]);
-            }}
-            onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-3xl p-12 sm:p-16 text-center cursor-pointer transition group flex flex-col items-center justify-center gap-3 ${
-              isDragging
-                ? 'border-amber-500 bg-amber-500/10'
-                : 'border-zinc-800 hover:border-zinc-700 bg-zinc-900/40 hover:bg-zinc-900/60'
-            }`}
-          >
-            <div className="w-14 h-14 rounded-2xl bg-zinc-800/80 group-hover:bg-amber-500/20 group-hover:text-amber-400 text-zinc-400 flex items-center justify-center transition border border-zinc-700/60">
-              <Upload className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-sm font-sans font-medium text-zinc-200">
-                Arraste uma thumbnail aqui ou clique para selecionar
-              </p>
-              <p className="text-xs text-zinc-500 mt-1 font-sans">
-                Suporta imagens JPG, PNG ou WebP
-              </p>
-            </div>
-          </div>
-
-          {/* Optional Video Title input before upload */}
-          <div className="max-w-xl mx-auto space-y-1 pt-2">
-            <label className="text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-400 block">
-              Título do Vídeo <span className="text-zinc-500 font-normal lowercase">(opcional)</span>
-            </label>
-            <input
-              type="text"
-              value={videoTitle}
-              onChange={e => setVideoTitle(e.target.value)}
-              placeholder="Ex: Como dobrei a bateria do meu celular"
-              className="w-full bg-zinc-900/80 border border-zinc-800 hover:border-zinc-700 focus:border-amber-500 rounded-xl px-4 py-2.5 text-xs font-sans text-zinc-100 placeholder:text-zinc-600 focus:outline-none transition"
-            />
+        <div className="space-y-8">
+          {titleField}
+          <div className="space-y-3">
+            <span className={fieldLabel}>Thumbnail</span>
+            <button
+              type="button"
+              onDragOver={e => {
+                e.preventDefault();
+                setIsDragging(true);
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={e => {
+                e.preventDefault();
+                setIsDragging(false);
+                if (e.dataTransfer.files?.[0]) handleFile(e.dataTransfer.files[0]);
+              }}
+              onClick={() => fileInputRef.current?.click()}
+              className={`flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-6 py-14 text-center transition-colors ${focusRing} ${
+                isDragging ? 'border-amber-500 bg-amber-500/5' : 'border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900/40'
+              }`}
+            >
+              <Upload className={`h-6 w-6 ${isDragging ? 'text-amber-400' : 'text-zinc-400'}`} aria-hidden="true" />
+              <span className="text-base font-semibold text-zinc-100">
+                {isDragging ? 'Solte para analisar' : 'Enviar thumbnail'}
+              </span>
+              <span className="text-sm text-zinc-500">Ou arraste a imagem aqui (JPG, PNG ou WebP)</span>
+            </button>
           </div>
         </div>
       )}
 
-      {/* Case 2: Image Uploaded — Hero Image on Left, Audit on Right */}
       {image && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left Column (Hero Image: 5 of 12 cols = ~42%) */}
-          <div className="lg:col-span-5 space-y-3">
-            <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-3 sm:p-4 space-y-3">
-              <div className="relative rounded-xl overflow-hidden border border-zinc-800/90 bg-zinc-950 aspect-video group">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={image}
-                  alt="Thumbnail para análise"
-                  className="w-full h-full object-contain mx-auto"
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="absolute bottom-2 right-2 px-3 py-1.5 rounded-lg bg-zinc-950/90 hover:bg-zinc-900 text-zinc-300 hover:text-zinc-100 text-xs font-mono border border-zinc-700/80 transition backdrop-blur-sm"
-                >
-                  Trocar Imagem
-                </button>
-              </div>
-
-              {/* Title input */}
-              <div>
-                <label className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block mb-1 font-bold">
-                  Título do Vídeo <span className="text-zinc-500 font-normal lowercase">(opcional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={videoTitle}
-                  onChange={e => setVideoTitle(e.target.value)}
-                  placeholder="Ex: Como dobrei a bateria do meu celular"
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-sans text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-amber-500 transition"
-                />
-              </div>
-
-              {/* Action Button */}
-              <button
-                type="button"
-                onClick={handleAnalyze}
-                disabled={isLoading}
-                className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-mono font-bold text-xs tracking-wider uppercase transition flex items-center justify-center gap-2 shadow-md shadow-amber-500/20 active:scale-[0.98]"
-              >
-                {isLoading ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin" />
-                    <span>AUDITANDO CONTRASTE & SLOP...</span>
-                  </>
-                ) : (
-                  <>
-                    <ShieldCheck className="w-4 h-4 text-zinc-950" />
-                    <span>{result ? 'REANALISAR THUMBNAIL' : 'ANALISAR THUMBNAIL'}</span>
-                  </>
-                )}
-              </button>
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+          <div className={`${panelSurface} space-y-4 lg:col-span-5`}>
+            <div className="aspect-video overflow-hidden rounded-lg bg-zinc-950">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={image} alt="Thumbnail para análise" className="mx-auto h-full w-full object-contain" />
             </div>
+            <button type="button" onClick={() => fileInputRef.current?.click()} className={`${secondaryButton} ${secondaryIdle} h-10 w-full`}>
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+              Trocar imagem
+            </button>
+
+            {titleField}
+
+            <button
+              type="button"
+              onClick={handleAnalyze}
+              disabled={isLoading}
+              aria-busy={isLoading}
+              className={`inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-xl px-6 text-sm font-bold uppercase tracking-[0.06em] transition-colors ${focusRing} ${
+                isLoading ? 'cursor-wait bg-amber-500 text-zinc-950' : 'bg-amber-500 text-zinc-950 hover:bg-amber-400 active:bg-amber-600'
+              }`}
+            >
+              {isLoading ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-950 border-t-transparent" aria-hidden="true" />
+                  <span>Analisando...</span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                  <span>{result ? 'Reanalisar thumbnail' : 'Analisar thumbnail'}</span>
+                </>
+              )}
+            </button>
           </div>
 
-          {/* Right Column (Structured Audit: 7 of 12 cols = ~58%) */}
-          <div className="lg:col-span-7 space-y-4">
+          <div className="space-y-4 lg:col-span-7">
             {!result && !isLoading && (
-              <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-8 text-center space-y-2">
-                <ShieldCheck className="w-8 h-8 text-zinc-600 mx-auto" />
-                <p className="text-sm font-medium text-zinc-300 font-sans">
-                  Pronto para auditar sua thumbnail
-                </p>
-                <p className="text-xs text-zinc-500 font-sans max-w-md mx-auto">
-                  Clique no botão &ldquo;Analisar Thumbnail&rdquo; ao lado para diagnosticar contraste, iluminação artificial, distorções de hardware e viés de pele plástica.
+              <div className={`${panelSurface} space-y-2 py-10 text-center`}>
+                <ShieldCheck className="mx-auto h-7 w-7 text-zinc-600" aria-hidden="true" />
+                <p className="text-sm font-medium text-zinc-300">Pronto para auditar sua thumbnail</p>
+                <p className="mx-auto max-w-md text-sm text-zinc-500">
+                  Diagnóstico de contraste, iluminação artificial, distorções de hardware e pele plástica.
                 </p>
               </div>
             )}
 
             {result && (
-              <div className="space-y-4 animate-in fade-in duration-300">
+              <div className="space-y-4">
                 {result.isLocal && (
-                  <div role="note" className="p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-xs text-amber-100 leading-relaxed font-sans">
+                  <div role="note" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-relaxed text-amber-100">
                     <strong className="font-semibold">Análise genérica — a imagem não foi examinada.</strong>{' '}
                     Sem um diretor visual configurado, o motor local só usa o título do vídeo. Os pontos abaixo são verificações comuns para esse tipo de thumbnail, não observações da sua imagem. Confira cada um antes de aplicar o prompt corretivo.
                   </div>
                 )}
-                {/* O Que Funciona */}
-                <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-2.5">
-                  <span className="text-xs font-mono font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-2 border-b border-zinc-800/80 pb-2">
-                    <CheckCircle2 className="w-4 h-4" />
-                    O QUE FUNCIONA
-                  </span>
-                  <ul className="space-y-1.5">
+
+                <div className={`${panelSurface} space-y-3`}>
+                  <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-emerald-400">
+                    <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                    O que funciona
+                  </h3>
+                  <ul className="space-y-2">
                     {result.functioning.map((item, idx) => (
-                      <li
-                        key={idx}
-                        className="p-2.5 rounded-xl bg-zinc-950/80 border border-zinc-800/80 text-xs text-zinc-200 leading-relaxed font-sans"
-                      >
-                        {item}
-                      </li>
+                      <li key={idx} className="text-sm leading-relaxed text-zinc-200">{item}</li>
                     ))}
                   </ul>
                 </div>
 
-                {/* O Que Parece Artificial */}
-                <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-2.5">
-                  <span className="text-xs font-mono font-bold uppercase tracking-wider text-rose-400 flex items-center gap-2 border-b border-zinc-800/80 pb-2">
-                    <AlertTriangle className="w-4 h-4" />
-                    O QUE PARECE ARTIFICIAL
-                  </span>
-                  <ul className="space-y-1.5">
+                <div className={`${panelSurface} space-y-3`}>
+                  <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-rose-400">
+                    <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                    O que parece artificial
+                  </h3>
+                  <ul className="space-y-2">
                     {result.aiLooking.map((item, idx) => (
-                      <li
-                        key={idx}
-                        className="p-2.5 rounded-xl bg-zinc-950/80 border border-zinc-800/80 text-xs text-zinc-200 leading-relaxed font-sans"
-                      >
-                        {item}
-                      </li>
+                      <li key={idx} className="text-sm leading-relaxed text-zinc-200">{item}</li>
                     ))}
                   </ul>
                 </div>
 
-                {/* Maior Problema (Recomendação Prioritária) */}
-                <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 sm:p-5 space-y-2.5">
-                  <div className="flex items-center gap-2 text-amber-400 text-xs font-mono font-bold uppercase tracking-wider">
-                    <Flame className="w-4 h-4 text-amber-500" />
-                    MAIOR PROBLEMA (CORREÇÃO PRIORITÁRIA)
-                  </div>
-                  <p className="text-xs sm:text-sm font-sans font-medium text-zinc-100 leading-relaxed">
-                    {result.topProblem}
-                  </p>
-
-                  <div className="pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setShowFixPrompt(prev => !prev)}
-                      className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-zinc-950 hover:bg-zinc-900 border border-amber-500/40 text-amber-300 text-xs font-mono font-bold transition shadow-sm"
-                    >
-                      <Wand2 className="w-3.5 h-3.5" />
-                      <span>{showFixPrompt ? 'Ocultar Prompt de Correção' : 'GERAR PROMPT PARA CORRIGIR'}</span>
-                    </button>
-                  </div>
+                <div className="space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 sm:p-5">
+                  <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-amber-400">
+                    <Flame className="h-4 w-4" aria-hidden="true" />
+                    Maior problema
+                  </h3>
+                  <p className="text-sm font-medium leading-relaxed text-zinc-100">{result.topProblem}</p>
+                  <button
+                    type="button"
+                    onClick={() => setShowFixPrompt(prev => !prev)}
+                    aria-expanded={showFixPrompt}
+                    aria-controls="analyze-fix-prompt"
+                    className={`${secondaryButton} ${secondaryIdle} h-10`}
+                  >
+                    <WandSparkles className="h-4 w-4" aria-hidden="true" />
+                    {showFixPrompt ? 'Ocultar prompt de correção' : 'Gerar prompt para corrigir'}
+                  </button>
                 </div>
 
-                {/* Corrective Patch Prompt Drawer */}
                 {showFixPrompt && (
-                  <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-3 animate-in fade-in duration-200">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono font-bold uppercase tracking-wider text-amber-500">
-                        Prompt Corretivo (Inpainting / Patch)
-                      </span>
+                  <div id="analyze-fix-prompt" className={`${panelSurface} space-y-3`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className={fieldLabel}>Prompt corretivo</span>
                       <button
                         type="button"
                         onClick={handleCopyFix}
-                        className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-mono font-bold flex items-center gap-1.5 transition"
+                        className={`inline-flex h-10 items-center gap-2 rounded-xl bg-amber-500 px-4 text-sm font-bold uppercase tracking-[0.06em] text-zinc-950 transition-colors hover:bg-amber-400 active:bg-amber-600 ${focusRing}`}
                       >
-                        {copiedFix ? (
-                          <>
-                            <Check className="w-3.5 h-3.5" />
-                            <span>Copiado!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3.5 h-3.5" />
-                            <span>Copiar</span>
-                          </>
-                        )}
+                        {copiedFix ? <Check className="h-4 w-4" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
+                        {copiedFix ? 'Copiado!' : 'Copiar'}
                       </button>
                     </div>
-                    <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 text-xs font-mono text-zinc-200 whitespace-pre-wrap leading-relaxed">
+                    <div className="whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950 p-4 font-mono text-xs leading-relaxed text-zinc-200">
                       {result.fixPrompt}
                     </div>
                   </div>
