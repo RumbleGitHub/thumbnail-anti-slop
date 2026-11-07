@@ -8,6 +8,7 @@ import {
   planPhysicalInteraction,
   planSpatialHierarchy,
   mergeComplementaryPlan,
+  withIdeaTextRequest,
   type ResearchResult
 } from '@/lib/simpleEngine/engine';
 import {
@@ -25,12 +26,12 @@ export async function POST(req: NextRequest) {
   let parsedBody: CreateThumbnailInput | null = null;
   try {
     const rawBody = await req.json();
-    const body: CreateThumbnailInput = {
+    const body: CreateThumbnailInput = withIdeaTextRequest({
       ...rawBody,
       ideaDescription: rawBody.ideaDescription || rawBody.idea || '',
       videoTitle: rawBody.videoTitle || '',
       references: rawBody.references || []
-    };
+    });
     parsedBody = body;
 
     // 1. LOCAL INITIAL CLASSIFICATION & BASELINE SCENE PLAN

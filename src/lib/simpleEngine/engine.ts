@@ -2583,9 +2583,24 @@ export function interpretUserIntent(
   };
 }
 
+// Text the creator asks to be written, quoted inside the idea: `escrito "VÍDEO VIRAL" na tela`.
+// A text cue is required, so quoted names (o jogo "God of War") are not turned into overlay text.
+const IDEA_TEXT_REQUEST = /(?:escrit[oa]s?|escrevendo|texto(?:\s+exato)?|frase|letreiro|t[íi]tulo|legenda|dizendo|written|text|caption|saying)\s*:?\s*(?:"([^"\n]{1,60})"|“([^”\n]{1,60})”)/iu;
+
+/**
+ * The Texto field wins; when it is empty (and text is not turned off), exact text requested inside
+ * the idea becomes the thumbnail text, so adapters never also say "do not add overlay text".
+ */
+export function withIdeaTextRequest(input: CreateThumbnailInput): CreateThumbnailInput {
+  if ((input.thumbnailText || '').trim() || input.textTreatment === 'SEM_TEXTO') return input;
+  const m = (input.ideaDescription || '').match(IDEA_TEXT_REQUEST);
+  const text = (m?.[1] || m?.[2] || '').trim();
+  return text ? { ...input, thumbnailText: text } : input;
+}
+
 // Generate complete photographic prompt tailored for specific target models
 export function generateSimpleThumbnail(
-  input: CreateThumbnailInput,
+  rawInput: CreateThumbnailInput,
   options?: {
     researchResults?: ResearchResult | ResearchResult[] | null;
     /**
@@ -2596,6 +2611,7 @@ export function generateSimpleThumbnail(
     plan?: ScenePlan;
   }
 ): CreateThumbnailResult {
+  const input = withIdeaTextRequest(rawInput);
   const {
     videoTitle = '',
     ideaDescription = '',

@@ -3257,5 +3257,17 @@ console.log('\n42. Testando a lista AVOID do OpenAI (sem pessoa, sem duplicatas,
     assert.ok(!items.some(i => /^no\s/.test(i)), 'AVOID sem "no " (negação dupla)');
   }
   console.log('  ✓ TEST 42: AVOID do OpenAI sem ruído de rosto em fotos de produto, sem duplicatas e sem negação dupla.');
+
+  // 42.2 Exact text asked for inside the idea (Texto field empty): no adapter may also forbid text.
+  const { withIdeaTextRequest } = await import('../src/lib/simpleEngine/engine.ts');
+  for (const model of ['GERAL', 'OPENAI_GPT_IMAGE_2_5_SUNBURST', 'GOOGLE_NANO_BANANA_2', 'MIDJOURNEY_V8_2', 'FLUX_2_PRO']) {
+    const p = generateSimpleThumbnail({ ...CYCLE6_BASE, targetModel: model, videoTitle: 'Testei o PS2', ideaDescription: 'escrito "VÍDEO VIRAL" na tela, eu segurando o PS2' }).finalPrompt;
+    assert.ok(p.includes('VÍDEO VIRAL'), `${model}: texto exato presente`);
+    assert.ok(!/Do not add overlay text|--no[^\n]*\btext\b/i.test(p), `${model}: sem instrução contraditória de "sem texto"`);
+  }
+  assert.equal(withIdeaTextRequest({ ...CYCLE6_BASE, ideaDescription: 'eu segurando a capa do jogo "God of War"' }).thumbnailText, '', 'Nome entre aspas sem pedido de texto não vira texto');
+  assert.equal(withIdeaTextRequest({ ...CYCLE6_BASE, thumbnailText: 'OUTRO', ideaDescription: 'texto "VALE?"' }).thumbnailText, 'OUTRO', 'Campo Texto tem prioridade');
+  assert.equal(withIdeaTextRequest({ ...CYCLE6_BASE, textTreatment: 'SEM_TEXTO', ideaDescription: 'texto "VALE?"' }).thumbnailText, '', 'SEM_TEXTO respeitado');
+  console.log('  ✓ TEST 42.2: Texto exato pedido dentro da ideia vira o texto da thumbnail, sem "não adicione texto" contraditório.');
 }
 console.log('\n✅ TODOS OS TESTES PASSARAM COM SUCESSO! VALIDAÇÃO CONCLUÍDA.');
