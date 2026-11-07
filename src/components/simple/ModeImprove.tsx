@@ -156,7 +156,7 @@ export function ModeImprove({ onNotify, onRefreshHistoryCount, allowCloudAi = fa
               ? 'bg-amber-500 text-zinc-950 hover:bg-amber-400 active:bg-amber-600'
               : ctaState === 'loading'
                 ? 'cursor-wait bg-amber-500 text-zinc-950'
-                : 'cursor-not-allowed bg-amber-500/40 text-zinc-950/70'
+                : 'cursor-not-allowed border border-zinc-800 bg-zinc-900 text-zinc-500'
           }`}
         >
           {ctaState === 'loading' ? (
