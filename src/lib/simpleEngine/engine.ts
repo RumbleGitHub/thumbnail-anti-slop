@@ -43,6 +43,7 @@ import { mergeComplementaryPlan } from './complementaryMerge.ts';
 import { PERSON_KEYWORDS } from './personDetection.ts';
 import { extractTitleNames, extractNamedProducts, extractCoverTitles, mentionsGameCovers } from './productNames.ts';
 import { parseCreatorIdea, midjourneyNoTerms } from './promptLanguage.ts';
+import { chooseTypographyStrategy } from '../typography/strategy.ts';
 
 export { extractTitleNames, extractNamedProducts, extractCoverTitles, mentionsGameCovers, parseCreatorIdea };
 
@@ -1734,7 +1735,12 @@ export function buildMidjourneyPrompt({
     const where = input.reserveSpaceForText && input.reservedSpacePosition
       ? ({ ESQUERDA: ' on the left side', DIREITA: ' on the right side', SUPERIOR: ' at the top', INFERIOR: ' at the bottom' } as const)[input.reservedSpacePosition]
       : '';
-    visualText += `, with the words "${exactText}" written in large bold clean letters${where}, no other text`;
+    if (chooseTypographyStrategy({ text: exactText, treatment: input.textTreatment }).strategy === 'IN_IMAGE') {
+      visualText += `, with the words "${exactText}" written in large bold clean letters${where}, no other text`;
+    } else {
+      // Default: Midjourney does not draw the headline; a real typography layer is added afterwards.
+      visualText += `, clean empty space${where || ' on the right side'} for a real typography layer added later with the exact text "${exactText}", keep the existing scene, background and lighting, no text, no letters, no pseudo-text in the image`;
+    }
   }
 
   // Creator exclusions ("sem neon") as --no, single words only (Midjourney reads each word separately).
@@ -2021,7 +2027,7 @@ export function buildPromptFromScenePlan(
     const posStr = reservedSpacePosition === 'ESQUERDA' ? 'left side' :
       reservedSpacePosition === 'DIREITA' ? 'right side' :
       reservedSpacePosition === 'SUPERIOR' ? 'upper top area' : 'lower bottom area';
-    typographyDirective = `Reserve clean, uncluttered negative space on the ${posStr} of the composition specifically for post-production typography ("${thumbnailText.trim()}"). Do not bake distorted AI typography directly into the pixels.`;
+    typographyDirective = typographyDirectiveFor(thumbnailText.trim(), textTreatment, posStr);
   }
 
   if (plan.taskType === 'IDENTITY_TRANSFER') {
@@ -2598,6 +2604,18 @@ export function withIdeaTextRequest(input: CreateThumbnailInput): CreateThumbnai
   return text ? { ...input, thumbnailText: text } : input;
 }
 
+/**
+ * Typography line handed to every model adapter. It must agree with the TYPOGRAPHY line of the prompt:
+ * default = the headline is NOT drawn by the image model (real layer added later); an explicit in-image
+ * request keeps the literal rule.
+ */
+export function typographyDirectiveFor(exact: string, treatment: TextTreatment | undefined, posStr: string): string {
+  if (chooseTypographyStrategy({ text: exact, treatment }).strategy === 'IN_IMAGE') {
+    return `The only visible text must read exactly: "${exact}". No other text, no pseudo-text, no invented letters.`;
+  }
+  return `Do not draw the headline text "${exact}" in the image. Reserve clean, uncluttered negative space on the ${posStr} of the composition for a real typography layer added afterwards with the exact text. Keep the scene, background, lighting and every existing logo untouched. Do not bake distorted AI typography directly into the pixels.`;
+}
+
 // Generate complete photographic prompt tailored for specific target models
 export function generateSimpleThumbnail(
   rawInput: CreateThumbnailInput,
@@ -2845,17 +2863,29 @@ ENVIRONMENT & OPTICS: ${contextEn}. ${styleTreatment}${depthOfField}, tangible m
   } else {
     // Regra 14: Texto exato - nunca traduzir, reescrever, corrigir ou adicionar palavras
     const exactText = thumbnailText.trim();
-    let typeLine = `The only visible text must read exactly: "${exactText}". No extra words. No pseudo-text. No invented letters.`;
+    const strategy = chooseTypographyStrategy({ text: exactText, treatment: textTreatment }).strategy;
+    let typeLine: string;
 
-    if (textTreatment === 'RENDER_IN_IMAGE') {
-      typeLine += ` Render with high contrast on a calm area, never placing text over faces, hands, or main product. Strictly use only the exact text "${exactText}", zero additional words, zero pseudo-text, zero invented decorative symbols.`;
+    if (strategy === 'REAL_LAYER') {
+      // Default: the generator must NOT draw the headline (it cannot draw letters reliably). The
+      // exact text is added later as a real font layer, so the scene and the space are what matter here.
+      typeLine = `Do not draw the headline text "${exactText}" and do not generate any letters, words or pseudo-text in the image. Leave a clean, calm area on the ${chosenPos} for a real typography layer that will be added afterwards with the exact spelling, accents and capitalization. Keep the scene, background, lighting and every existing logo untouched; only keep that area free of clutter.`;
     } else {
-      typeLine += ` Leave clean negative space on the ${chosenPos} for later typography. Do not generate random letters, words, logos, symbols, pseudo-text or decorative glyphs inside the image.`;
+      // Explicit request for in-image text: the exact text is the only text, never rewritten.
+      typeLine = `The only visible text must read exactly: "${exactText}". No extra words. No pseudo-text. No invented letters.`;
+      if (textTreatment === 'RENDER_IN_IMAGE') {
+        typeLine += ` Render with high contrast on a calm area, never placing text over faces, hands, or main product. Strictly use only the exact text "${exactText}", zero additional words, zero pseudo-text, zero invented decorative symbols.`;
+      } else {
+        typeLine += ` Leave clean negative space on the ${chosenPos} for later typography. Do not generate random letters, words, logos, symbols, pseudo-text or decorative glyphs inside the image.`;
+      }
     }
 
-    // Regra 18 & 20: Fonte real vs características tipográficas
-    if (fontName && fontName.trim().length > 0) {
-      typeLine += ` Typographic style: render in authentic ${fontName.trim()} typeface characteristics (clean letterforms, consistent baseline, bold weight).`;
+    // Regra 18 & 20: a font name cannot be promised to an image model. In REAL_LAYER the font is applied
+    // by the layer (see buildTypographyPlan); in IN_IMAGE it is only a style hint.
+    if (strategy === 'REAL_LAYER') {
+      // Typographic style is decided by the real layer, nothing is asked of the image model.
+    } else if (fontName && fontName.trim().length > 0) {
+      typeLine += ` Typographic style: similar in spirit to ${fontName.trim()} (clean letterforms, consistent baseline, bold weight); the generator cannot guarantee the real typeface.`;
     } else if (textTreatment === 'USAR_REFERENCIA' && typeRefs.length > 0) {
       typeLine += ` Typographic personality, weight, kerning, and treatment must strictly match the TYPOGRAPHY reference.`;
     } else {
@@ -2896,7 +2926,7 @@ ENVIRONMENT & OPTICS: ${contextEn}. ${styleTreatment}${depthOfField}, tangible m
     const posStr = reservedSpacePosition === 'ESQUERDA' ? 'left side' :
       reservedSpacePosition === 'DIREITA' ? 'right side' :
       reservedSpacePosition === 'SUPERIOR' ? 'upper top area' : 'lower bottom area';
-    typographyDirective = `Reserve clean, uncluttered negative space on the ${posStr} of the composition specifically for post-production typography ("${thumbnailText.trim()}"). Do not bake distorted AI typography directly into the pixels.`;
+    typographyDirective = typographyDirectiveFor(thumbnailText.trim(), textTreatment, posStr);
   }
 
   // Same lock decisions as the GERAL PRESERVATION LOCKS above, handed to every model adapter.
@@ -3010,9 +3040,12 @@ export function buildTypographyPlan(
   const wordCount = clean.split(/\s+/).filter(Boolean).length;
   const lineCount = wordCount <= 2 ? '1 a 2 linhas' : wordCount <= 4 ? 'duas linhas no máximo' : 'duas a três linhas compactas';
 
+  // The text is added afterwards as a real layer (not drawn by the image model): say so first.
+  const strategyLine = `Estratégia: camada de texto real, depois da imagem. Texto exato: "${clean}" (ortografia, acentos e maiúsculas preservados). A IA deixa o espaço ${posPt} limpo.`;
+
   if (fontName && fontName.trim().length > 0) {
     const fName = fontName.trim();
-    return `Tipografia com características da família ${fName} (peso bold, caixa alta, ${lineCount}, alto contraste), aplicada posteriormente sobre o espaço negativo ${posPt}.\n\nSugestão: ${fName}.`;
+    return `${strategyLine}\n\nFonte da camada: ${fName} (instalada, aplicada depois; a IA não desenha essa fonte). ${lineCount}, peso bold, alto contraste.`;
   }
 
   // Primeiro determina a FUNÇÃO VISUAL da tipografia:
@@ -3022,22 +3055,26 @@ export function buildTypographyPlan(
   if (stylePreset === 'Editorial' || stylePreset === 'Fotojornalismo') {
     // GROTESCA EDITORIAL: para aparência mais natural, documental ou editorial
     visualDecision = `Grotesca editorial, peso equilibrado e elegante, caixa alta, ${lineCount}, alto contraste sem agressividade visual, aplicada posteriormente sobre o espaço negativo ${posPt}.`;
-    fontSuggestions = 'Roboto Condensed ou Oswald';
+    fontSuggestions = 'Oswald';
   } else if (wordCount >= 4 || position === 'SUPERIOR' || position === 'INFERIOR') {
     // SANS NEUTRA: quando a imagem deve dominar ou há mais palavras
     visualDecision = `Sans-serif neutra de peso médio/bold, ${lineCount}, servindo como apoio secundário para que a composição visual da imagem domine, aplicada posteriormente sobre o espaço negativo ${posPt}.`;
-    fontSuggestions = 'Inter ou Barlow Condensed';
+    fontSuggestions = 'Barlow Condensed';
   } else if (isTech) {
     // SANS GEOMÉTRICA PESADA: para tecnologia limpa e precisão
     visualDecision = `Sans geométrica pesada, linhas limpas e estruturadas, caixa alta, ${lineCount}, alta legibilidade em telas compactas, aplicada posteriormente sobre o espaço negativo ${posPt}.`;
-    fontSuggestions = 'Archivo Black ou Inter';
+    fontSuggestions = 'Archivo Black';
   } else {
     // CONDENSADA PESADA: para poucas palavras com grande presença
     visualDecision = `Sans-serif condensada pesada, caixa alta, ${lineCount}, alto contraste com a cena, aplicada posteriormente sobre o espaço negativo ${posPt}.`;
-    fontSuggestions = 'Anton ou Archivo Black';
+    fontSuggestions = 'Anton ou Bebas Neue';
   }
 
-  return `${visualDecision}\n\nSugestões: ${fontSuggestions}.`;
+  return `${strategyLine}
+
+${visualDecision}
+
+Fontes instaladas sugeridas: ${fontSuggestions}.`;
 }
 
 // Slop remover & prompt purifier (Understands intent first, strips cliches, reconstructs grounded prompt)

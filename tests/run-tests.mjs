@@ -753,7 +753,10 @@ console.log('\n19. Testando Novos Tipos de Referência, Isolamento de Atributos 
     preserveFace: false,
     preserveProduct: false
   });
-  assert.ok(resExato.finalPrompt.includes('The only visible text must read exactly: "AGORA FUNCIONA". No extra words. No pseudo-text. No invented letters.'), 'Deve tratar AGORA FUNCIONA como texto exato sem alteração');
+  // Default (AUTO) = real typography layer: the exact text is kept verbatim, but the image model is told
+  // NOT to draw it (typography plan, suite 43). Explicit in-image requests keep the old literal rule.
+  assert.ok(resExato.finalPrompt.includes('Do not draw the headline text "AGORA FUNCIONA"'), 'AUTO: texto exato não é desenhado pela IA');
+  assert.ok(resExato.finalPrompt.includes('"AGORA FUNCIONA"'), 'Deve manter AGORA FUNCIONA exatamente, sem alteração');
   console.log('  ✓ TEXTO EXATO: Instrução literal "AGORA FUNCIONA" validada sem reescrita.');
 
   // Test 19F: FONTE REAL INFORMADA PELO USUÁRIO (ex: Anton)
@@ -770,7 +773,10 @@ console.log('\n19. Testando Novos Tipos de Referência, Isolamento de Atributos 
     preserveFace: false,
     preserveProduct: false
   });
-  assert.ok(resFonteReal.finalPrompt.includes('Anton typeface characteristics'), 'Deve usar nome de fonte real informada');
+  // The font belongs to the real typography layer (plan), not to the image prompt: no promise that the
+  // image model draws Anton.
+  assert.ok(!/Anton typeface/i.test(resFonteReal.finalPrompt), 'Não promete ao gerador desenhar Anton');
+  assert.ok(/Fonte da camada: Anton/.test(resFonteReal.typographyPlan), 'Plano: Anton é a fonte da camada real');
   console.log('  ✓ FONTE REAL: Preservação de Anton sem nomes falsos inventados pela IA.');
 
   // Test 19G: PESSOA + PRODUTO + CENÁRIO juntos (Isolamento estrito sem vazamento de atributos)
@@ -809,24 +815,24 @@ console.log('\n19. Testando Novos Tipos de Referência, Isolamento de Atributos 
   // Condensada pesada para poucas palavras
   const planGeneric = buildTypographyPlan('AGORA FUNCIONA', false, undefined, 'DIREITA', 'Natural');
   assert.ok(planGeneric.includes('Sans-serif condensada pesada'), 'Deve determinar função condensada pesada');
-  assert.ok(planGeneric.includes('Anton ou Archivo Black'), 'Deve sugerir Anton ou Archivo Black');
+  assert.ok(planGeneric.includes('Anton ou Bebas Neue'), 'Deve sugerir Anton ou Bebas Neue (instaladas)');
   assert.ok(planGeneric.includes('à direita'), 'Deve respeitar a posição reservada');
 
   // Sans geométrica pesada para tech
   const planTech = buildTypographyPlan('RTX 5090 TESTE', true, undefined, 'ESQUERDA', 'Natural');
   assert.ok(planTech.includes('Sans geométrica pesada'), 'Para tech deve determinar sans geométrica pesada');
-  assert.ok(planTech.includes('Archivo Black ou Inter'), 'Sugestão para tech');
+  assert.ok(planTech.includes('Archivo Black'), 'Sugestão para tech');
   assert.ok(planTech.includes('à esquerda'), 'Deve respeitar a posição à esquerda');
 
   // Grotesca editorial para estilo Editorial / Fotojornalismo
   const planEditorial = buildTypographyPlan('DOCUMENTÁRIO', false, undefined, 'DIREITA', 'Editorial');
   assert.ok(planEditorial.includes('Grotesca editorial'), 'Para editorial deve determinar grotesca editorial');
-  assert.ok(planEditorial.includes('Roboto Condensed ou Oswald'), 'Sugestão para editorial');
+  assert.ok(planEditorial.includes('Oswald'), 'Sugestão para editorial');
 
   // Sans neutra para texto mais longo (imagem deve dominar)
   const planNeutra = buildTypographyPlan('TESTANDO MAIS DE QUATRO PALAVRAS', false, undefined, 'DIREITA', 'Natural');
   assert.ok(planNeutra.includes('Sans-serif neutra'), 'Texto longo deve usar sans neutra para imagem dominar');
-  assert.ok(planNeutra.includes('Inter ou Barlow Condensed'), 'Sugestão para sans neutra');
+  assert.ok(planNeutra.includes('Barlow Condensed'), 'Sugestão para sans neutra');
 
   // Fonte customizada informada pelo usuário
   const planCustom = buildTypographyPlan('IMPORTANTE', false, 'Montserrat', 'SUPERIOR');
@@ -3279,4 +3285,75 @@ console.log('\n42. Testando a lista AVOID do OpenAI (sem pessoa, sem duplicatas,
   assert.equal(withIdeaTextRequest({ ...CYCLE6_BASE, textTreatment: 'SEM_TEXTO', ideaDescription: 'texto "VALE?"' }).thumbnailText, '', 'SEM_TEXTO respeitado');
   console.log('  ✓ TEST 42.2: Texto exato pedido dentro da ideia vira o texto da thumbnail, sem "não adicione texto" contraditório.');
 }
+// 43. Tipografia: estratégia (imagem x camada real), layout do overlay, fontes instaladas e revisão do ANALISAR.
+console.log('\n43. Testando tipografia: estratégia, camada real, layout do editor e revisão de letras...');
+{
+  const fs = await import('node:fs');
+  const { chooseTypographyStrategy } = await import('../src/lib/typography/strategy.ts');
+  const { REAL_FONTS } = await import('../src/lib/typography/fonts.ts');
+  const L = await import('../src/lib/typography/overlayLayout.ts');
+  const { reviewTypography } = await import('../src/lib/typography/analyze.ts');
+  const { generateSimpleThumbnail, buildTypographyPlan } = await import('../src/lib/simpleEngine/engine.ts');
+
+  // 43.1 Estratégia: o padrão é camada real; texto dentro da imagem só quando pedido.
+  assert.equal(chooseTypographyStrategy({ text: 'VALE A PENA?', treatment: 'AUTO' }).strategy, 'REAL_LAYER', 'AUTO recomenda camada real');
+  assert.equal(chooseTypographyStrategy({ text: 'VALE A PENA?', treatment: 'USAR_REFERENCIA' }).strategy, 'IN_IMAGE', 'Pedido de estilo da referência = dentro da imagem');
+  assert.equal(chooseTypographyStrategy({ text: 'VALE A PENA?', treatment: 'RENDER_IN_IMAGE' }).strategy, 'IN_IMAGE', 'Pedido explícito = dentro da imagem');
+  assert.equal(chooseTypographyStrategy({ text: '', treatment: 'AUTO' }).strategy, 'NONE', 'Sem texto = nenhuma');
+  assert.equal(chooseTypographyStrategy({ text: 'X', treatment: 'SEM_TEXTO' }).strategy, 'NONE', 'SEM_TEXTO = nenhuma');
+  console.log('  ✓ TEST 43.1: Estratégia padrão é camada real; texto na imagem só com pedido explícito.');
+
+  // 43.2 Prompt: no modo padrão a IA não recebe ordem para desenhar o texto, mas o texto exato é preservado
+  // com acentos, maiúsculas e pontuação; nenhuma promessa de fonte ao gerador.
+  const pt = 'AÇÃO: NÃO COMPRE, é sério!';
+  const real = generateSimpleThumbnail({ ...CYCLE6_BASE, videoTitle: 'Vale a pena?', ideaDescription: 'Eu apontando para a tela', thumbnailText: pt, fontName: 'Anton', targetModel: 'GERAL' });
+  assert.ok(real.finalPrompt.includes(`"${pt}"`), 'Texto exato com acentos e pontuação preservado no prompt');
+  assert.ok(real.finalPrompt.includes('Do not draw the headline text'), 'Camada real: a IA não desenha o título');
+  assert.ok(!/must read exactly/.test(real.finalPrompt), 'Camada real: sem a ordem de desenhar o texto');
+  assert.ok(!/Anton typeface/i.test(real.finalPrompt), 'Sem promessa de desenhar Anton');
+  assert.match(real.typographyPlan, /Estratégia: camada de texto real/, 'Plano diz que o texto vira camada real');
+  assert.match(real.typographyPlan, /Fonte da camada: Anton/, 'Plano escolhe a fonte instalada');
+  const inImg = generateSimpleThumbnail({ ...CYCLE6_BASE, videoTitle: 'Vale a pena?', ideaDescription: 'Eu apontando', thumbnailText: 'VALE A PENA?', textTreatment: 'RENDER_IN_IMAGE', targetModel: 'GERAL' });
+  assert.match(inImg.finalPrompt, /The only visible text must read exactly: "VALE A PENA\?"/, 'Pedido explícito mantém a regra literal');
+  console.log('  ✓ TEST 43.2: Texto exato em português preservado; a IA não recebe ordem de desenhar; fonte só na camada.');
+
+  // 43.3 Fontes: só as cinco OFL instaladas, arquivos existentes e licença de cada família.
+  assert.deepEqual(REAL_FONTS.map(f => f.family).sort(), ['Anton', 'Archivo Black', 'Barlow Condensed', 'Bebas Neue', 'Oswald'], 'Cinco fontes OFL');
+  for (const f of REAL_FONTS) {
+    assert.ok(fs.existsSync(new URL('../public' + f.file, import.meta.url)), `arquivo da fonte existe: ${f.file}`);
+  }
+  for (const d of ['anton', 'archivoblack', 'barlowcondensed', 'bebasneue', 'oswald']) {
+    assert.ok(fs.existsSync(new URL(`../public/fonts/${d}/OFL.txt`, import.meta.url)), `licença OFL de ${d}`);
+  }
+  assert.match(buildTypographyPlan('X Y', false, undefined, 'DIREITA', 'Editorial'), /Oswald/, 'Sugestão editorial é uma fonte instalada');
+  console.log('  ✓ TEST 43.3: Cinco fontes OFL presentes, com licença; sugestões usam só fontes instaladas.');
+
+  // 43.4 Layout: tamanho em pixels, contorno, texto sempre dentro da imagem, texto grande demais é sinalizado.
+  assert.equal(L.overlayFontPx(720, 10), 72, 'Tamanho em pixels a partir da altura');
+  assert.equal(L.overlayFontPx(100, 1), 8, 'Mínimo de 8 px');
+  assert.equal(L.outlineWidthPx(72, 0), 0, 'Sem contorno quando 0');
+  assert.equal(L.outlineWidthPx(72, 2), 1.4, 'Contorno proporcional à fonte');
+  const inside = L.placeText(1280, 720, 300, 80, 100, 100);
+  assert.ok(inside.x + 300 <= 1280 && inside.y + 80 <= 720 && inside.x >= 0 && inside.y >= 0, 'Caixa do texto não sai da imagem');
+  assert.ok(inside.moved, 'Ao ir para o canto, a caixa é puxada para dentro');
+  const huge = L.placeText(400, 300, 900, 80, 50, 50);
+  assert.ok(huge.tooLarge, 'Texto maior que a imagem é sinalizado');
+  assert.ok(L.overlayWarnings({ text: '  ', sizePct: 9, xPct: 50, yPct: 50, outlinePct: 0 }, null).some(w => /Digite/.test(w)), 'Texto vazio é avisado');
+  assert.equal(L.normalizeSpec({ text: 'x', sizePct: 99, xPct: -5, yPct: 500, outlinePct: 40 }).sizePct, 30, 'Tamanho limitado');
+  console.log('  ✓ TEST 43.4: Layout mantém o texto dentro da imagem, limita valores e sinaliza texto grande demais.');
+
+  // 43.5 Revisão do ANALISAR: correções específicas; estilo de jogo intencional não vira defeito.
+  const none = reviewTypography('NONE', 'letras deformadas');
+  assert.equal(none.correction, null, 'Sem texto visível = sem correção de texto');
+  const gaming = reviewTypography('MAIOR CONTEÚDO', 'bold colourful gaming lettering, readable, intentional style');
+  assert.equal(gaming.correction, null, 'Estilo de jogo legível não é classificado como defeito');
+  const bad = reviewTypography('SUPER DEAL', 'misspelled, garbled letters; mixed font styles; heavy outline; small at phone size');
+  assert.ok(bad.findings.length >= 4, 'Detecta vários defeitos');
+  assert.match(bad.correction, /reduza a espessura do contorno/, 'Correção específica para contorno');
+  assert.match(bad.correction, /única fonte display real/, 'Correção específica para mistura de fontes');
+  assert.match(bad.correction, /Preserve a composição/, 'Preserva composição e logotipos');
+  assert.match(bad.correction, /versão limpa/, 'Letras falsas: texto real sobre versão limpa');
+  console.log('  ✓ TEST 43.5: Revisão cita correções específicas; estilo de jogo legível não é tratado como defeito.');
+}
+
 console.log('\n✅ TODOS OS TESTES PASSARAM COM SUCESSO! VALIDAÇÃO CONCLUÍDA.');

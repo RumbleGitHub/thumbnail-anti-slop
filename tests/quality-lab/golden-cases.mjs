@@ -205,6 +205,50 @@ export const GOLDEN_CASES = [
     },
     expect: { exactText: 'VALE A PENA?', mustNotIncludePositive: [/\b8k\b/i, /ultra detailed/i, /neon glow/i, /red arrow/i] },
   },
+  // Typography (synthetic fixtures, deterministic prompt checks only; visual judgment is separate).
+  {
+    id: '17_typography_pt_accents_real_layer',
+    title: 'Texto em português com acentos vai para camada real, não é desenhado pela IA',
+    kind: 'create',
+    input: {
+      videoTitle: 'Vale a pena comprar?',
+      ideaDescription: 'Eu apontando para a tela com cara séria',
+      thumbnailText: 'AÇÃO: NÃO COMPRE!',
+      fontName: 'Anton',
+      references: [],
+    },
+    expect: {
+      person: true,
+      exactText: 'AÇÃO: NÃO COMPRE!',
+      mustInclude: ['real typography layer'],
+      mustNotInclude: ['must read exactly', 'Anton typeface'],
+    },
+  },
+  {
+    id: '18_typography_explicit_in_image',
+    title: 'Pedido explícito de texto dentro da imagem mantém a regra literal',
+    kind: 'create',
+    input: {
+      videoTitle: 'Teste do controle',
+      ideaDescription: 'Controle sobre a mesa, luz natural',
+      thumbnailText: 'VALE A PENA?',
+      textTreatment: 'RENDER_IN_IMAGE',
+      references: [],
+    },
+    expect: { exactText: 'VALE A PENA?', mustNotInclude: ['Do not draw the headline'] },
+  },
+  {
+    id: '19_typography_gaming_title_large',
+    title: 'Título grande de jogo na camada real, sem deformar a capa nem a cena',
+    kind: 'create',
+    input: {
+      videoTitle: 'Zerei GTA San Andreas',
+      ideaDescription: 'Eu segurando o controle na frente da TV, cena do jogo ao fundo',
+      thumbnailText: 'SAN ANDREAS',
+      references: [],
+    },
+    expect: { exactText: 'SAN ANDREAS', mustInclude: ['real typography layer'], mustNotInclude: ['must read exactly'] },
+  },
 ];
 
 // Fixture-specific content that earlier archetypes injected regardless of the

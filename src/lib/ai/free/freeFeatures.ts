@@ -6,6 +6,7 @@ import type { AnalyzeThumbnailSimpleResult, ImprovePromptInput, ImprovePromptRes
 import { findingsFromMetrics, type ImageMetrics } from '../../simpleEngine/pixelAnalysis.ts';
 import { improvePrompt } from '../../simpleEngine/engine.ts';
 import { askImage, askText, extractJsonObject } from './workersAi.ts';
+import { reviewTypography } from '../../typography/analyze.ts';
 
 /** Why the free layer did not produce the result (shown to the creator, logged for the owner). */
 export interface FreeAiFailure {
@@ -35,10 +36,11 @@ export function parseLabeledAnswer(answer: string): Record<string, string> {
   return out;
 }
 
-export const ANALYZE_QUESTION = `You are auditing a YouTube thumbnail for visible artificial "AI slop" defects. Look only at what is visible. Never identify or guess who any person is. Reply with exactly these four lines and nothing else:
+export const ANALYZE_QUESTION = `You are auditing a YouTube thumbnail for visible artificial "AI slop" defects. Look only at what is visible. Never identify or guess who any person is. Reply with exactly these five lines and nothing else:
 SUBJECT: the main subject in at most 12 words
-TEXT: the exact visible words in the image, or NONE
-ARTIFICIAL: up to 2 visible artificial-looking defects (for example plastic skin, extra or melted fingers, warped product, neon glow, fake bokeh, garbled letters), separated by ";", or NONE
+TEXT: the exact visible words in the image, copied as they appear, or NONE
+ARTIFICIAL: up to 2 visible artificial-looking defects (for example plastic skin, extra or melted fingers, warped product, neon glow, fake bokeh), separated by ";", or NONE
+TYPE: only if there is visible text, one short sentence on its lettering: misshapen or misspelled letters, mixed font styles, excessive outline or shadow, readability at phone size; bold colourful gaming lettering is NOT a defect unless it is misspelled, distorted or unreadable; or NONE
 WORKS: one thing that works visually, in at most 15 words`;
 
 /**
@@ -64,6 +66,8 @@ export async function analyzeWithFreeVision(
     return { failed: 'unusable-answer' };
   }
 
+  // Typography: specific corrections from what the model saw (never a generic "improve the typography").
+  const typo = reviewTypography(a.TEXT || '', a.TYPE || '');
   const metricIssues = metrics ? findingsFromMetrics(metrics).filter(f => f.kind === 'issue').sort((x, y) => y.severity - x.severity) : [];
   const metricGood = metrics ? findingsFromMetrics(metrics).filter(f => f.kind === 'good').sort((x, y) => y.severity - x.severity) : [];
 
@@ -74,8 +78,9 @@ export async function analyzeWithFreeVision(
   ].slice(0, 3);
   const aiLooking = [
     ...artificial.map(d => `Visto pela IA: ${d}`),
+    ...typo.findings.map(f => `Tipografia: ${f}.`),
     ...metricIssues.map(i => i.text),
-  ].slice(0, 3);
+  ].slice(0, 4);
   const topProblem = metricIssues[0] && metricIssues[0].severity >= 6
     ? metricIssues[0].text
     : artificial[0]
@@ -84,6 +89,7 @@ export async function analyzeWithFreeVision(
 
   const changeItems = [
     ...artificial.map(d => `Correct this visible defect: ${d}.`),
+    ...(typo.correction ? [typo.correction] : []),
     ...metricIssues.slice(0, 3).map(i => i.fix || ''),
   ].filter(Boolean).slice(0, 4);
   const avoidItems = metricIssues.map(i => i.avoid).filter(Boolean);
